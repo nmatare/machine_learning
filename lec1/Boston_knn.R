@@ -29,7 +29,7 @@ names(lmB)
 cor(lmB$fitted.values,lmB$residuals) #cor is 0!
 
 #fit knn with k=50
-train = data.frame(lstat,medv) #data frame with variables of interest
+train = data.frame(lstat, medv) #data frame with variables of interest
 #test is data frame with x you want f(x) at, sort lstat to make plots nice.
 test = data.frame(lstat = sort(lstat))
 kf50 = kknn(medv~lstat,train,test,k=50,kernel = "rectangular")
@@ -171,7 +171,7 @@ ndocv = 50 #number of CV splits to try
 n=length(y)
 cvmat = matrix(0,length(kv),ndocv) #keep results for each split
 for(i in 1:ndocv) {
-    cvtemp = docvknn(xs,y,kv,nfold=10)
+    cvtemp = docvknn(xs,y,kv, nfold = 10)
     cvmean = cvmean + cvtemp
     cvmat[,i] = sqrt(cvtemp/n)
 }
@@ -181,7 +181,7 @@ plot(kv,cvmean,type="n",ylim=range(cvmat),xlab="k",cex.lab=1.5)
 for(i in 1:ndocv) lines(kv,cvmat[,i],col=i,lty=3) #plot each result
 lines(kv,cvmean,type="b",col="black",lwd=5) #plot average result
 
-#refit using all the data and k=5
+# refit using all the data and k=5
 ddf = data.frame(y,xs)
 near5 = kknn(y~.,ddf,ddf,k=5,kernel = "rectangular")
 lmf = lm(y~.,ddf)
