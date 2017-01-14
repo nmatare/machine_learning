@@ -26,7 +26,7 @@ print(summary(lmB))
 abline(lmB$coef,col="red",lwd=4) #lwd: line width=4
 #try:
 names(lmB)
-cor(lmB$fitted.values,lmB$residuals) #cor is 0!
+cor(lmB$fitted.values, lmB$residuals) #cor is 0!
 
 #fit knn with k=50
 train = data.frame(lstat, medv) #data frame with variables of interest
@@ -66,33 +66,39 @@ library(kknn) ## knn library
 library(MASS) ## a library of example datasets
 n = nrow(Boston)
 # get in-sample and out-of-sample data frames
-df = data.frame(lstat=Boston$lstat,medv=Boston$medv) #simple data frame for conveniance
+df = data.frame(lstat=Boston$lstat, medv=Boston$medv) #simple data frame for conveniance
 ntrain=400 #number of observations for training data
-set.seed(99) #set seed for random sampling of training data
-tr = sample(1:nrow(df),ntrain)
-train = df[tr,] #training data
-test = df[-tr,] #test data
+# set.seed(99) #set seed for random sampling of training data
+tr = sample(1:nrow(df), ntrain)
+train = df[tr, ] #training data
+test = df[-tr, ] #test data
+
 #loop over values of k, fit on train, predict on test
-kvec=2:350; nk=length(kvec)
-outMSE = rep(0,nk) #will will put the out-of-sample MSE here
+kvec = 2:350; 
+nk = length(kvec)
+outMSE = rep(0, nk) #will will put the out-of-sample MSE here
+
 for(i in 1:nk) {
-    near = kknn(medv~lstat,train,test,k=kvec[i],kernel = "rectangular")
-    MSE = mean((test$medv-near$fitted)^2)
+
+    near = kknn(medv ~ lstat, train, test, k = kvec[i], kernel = "rectangular")
+    MSE = mean((test$medv - near$fitted) ^ 2)
     outMSE[i] = MSE
 }
 
 #plot
-par(mfrow=c(1,2))
-plot(kvec,sqrt(outMSE))
+par(mfrow = c(1,2))
+
+plot(kvec, sqrt(outMSE))
 plot(log(1/kvec),sqrt(outMSE))
 imin = which.min(outMSE)
-cat("best k is ",kvec[imin],"\n")
+cat("best k is ", kvec[imin], "\n"); cat("best k is ", kvec[imin], "\n")
+
 #fit with all data and best k and plot
-test = data.frame(lstat=sort(df$lstat))
-near = kknn(medv~lstat,df,test,k=kvec[imin],kernel = "rectangular")
+test = data.frame(lstat = sort(df$lstat))
+near = kknn(medv ~ lstat, train = df, test = test, k = kvec[imin], kernel = "rectangular")
 par(mfrow=c(1,1))
 plot(df)
-lines(test$lstat,near$fitted,col="red",type="b")
+lines(test$lstat, near$fitted,col="red",type="b")
 
 
 ############################
@@ -109,13 +115,17 @@ set.seed(99) #always set the seed!
 kv = 2:100 #these are the k values (k as in kNN) we will try
 #docvknn(matrix x, vector y,vector of k values, number of folds),
 #does cross-validation for training data (x,y).
-cv1 = docvknn(matrix(Boston$lstat,ncol=1),Boston$medv,kv,nfold=5)
-cv2 = docvknn(matrix(Boston$lstat,ncol=1),Boston$medv,kv,nfold=5)
-cv3 = docvknn(matrix(Boston$lstat,ncol=1),Boston$medv,kv,nfold=10)
+cv1 = docvknn(matrix(Boston$lstat, ncol = 1), Boston$medv, kv, nfold = 5)
+cv2 = docvknn(matrix(Boston$lstat, ncol = 1), Boston$medv, kv, nfold = 5)
+cv3 = docvknn(matrix(Boston$lstat, ncol = 1), Boston$medv, kv, nfold = 10)
 #docvknn returns error sum of squares, want RMSE
 cv1 = sqrt(cv1/length(Boston$medv))
 cv2 = sqrt(cv2/length(Boston$medv))
 cv3 = sqrt(cv3/length(Boston$medv))
+
+# train
+
+#
 
 #plot
 rgy = range(c(cv1,cv2,cv3))
