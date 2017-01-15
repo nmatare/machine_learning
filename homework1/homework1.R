@@ -11,6 +11,51 @@
 	require(gridExtra)
 	library(MASS)
 	library(kknn)
+	library(boot)
+	library(rpart)
+	library(data.table)
+
+	UC <- as.data.table(read.csv(url("https://raw.githubusercontent.com/ChicagoBoothML/DATA___UsedCars/master/UsedCars.csv")))
+	UC[,UID := .I];	setkey(UC, UID) # create UID column
+	set.seed(666) # the devils seed
+
+	# Helper functions from TA
+	mse <- function(y,yhat) {return(sum((y - yhat) ^ 2))}
+
+	doknn <- function(x, y, xp, k){
+					kdo=k[1]
+					train = data.frame(x,y=y)
+					test = data.frame(xp); names(test) = names(train)[1:(ncol(train)-1)]
+					near  = kknn(y~.,train,test,k=kdo,kernel='rectangular')
+					return(near$fitted)
+	}
+
+	docv <- function(x, y, set, predfun, loss, nfold = 10, doran = TRUE, verbose = TRUE, ...){
+					#a little error checking
+					if(!(is.matrix(x) | is.data.frame(x))) {cat('error in docv: x is not a matrix or data frame\n'); return(0)}
+					if(!(is.vector(y))) {cat('error in docv: y is not a vector\n'); return(0)}
+					if(!(length(y)==nrow(x))) {cat('error in docv: length(y) != nrow(x)\n'); return(0)}
+
+					nset = nrow(set); n=length(y) #get dimensions
+					if(n==nfold) doran=FALSE #no need to shuffle if you are doing them all.
+					cat('in docv: nset,n,nfold: ',nset,n,nfold,'\n')
+					lossv = rep(0,nset) #return values
+					if(doran) {ii = sample(1:n,n); y=y[ii]; x=x[ii,,drop=FALSE]} #shuffle rows
+
+					fs = round(n/nfold) # fold size
+					for(i in 1:nfold) { #fold loop
+					bot=(i-1)*fs+1; top=ifelse(i==nfold,n,i*fs); ii =bot:top
+					if(verbose) cat('on fold: ',i,', range: ',bot,':',top,'\n')
+					xin = x[-ii,,drop=FALSE]; yin=y[-ii]; xout=x[ii,,drop=FALSE]; yout=y[ii]
+						for(k in 1:nset) { #setting loop
+						  yhat = predfun(xin,yin,xout,set[k,],...)
+						  lossv[k]=lossv[k]+loss(yout,yhat)
+						} 
+					} 
+	  				return(lossv)
+	}
+
+	docvknn <- function(x, y, k, nfold = 10, doran = TRUE, verbose = TRUE){return(docv(x, y, matrix(k, ncol = 1), doknn, mse, nfold = nfold, doran = doran, verbose = verbose))}
 
 ########
 # Question 1
@@ -115,7 +160,7 @@
 	# Simulation 2
 	########
 
-	question2 <- doQuestionOne(quote(3 + exp(x + 1)))
+	question2 <- doQuestionOne(equation = quote(3 + exp(x + 1)), noise = 0)
 
 	question2$plot1; dev.new()
 	grid.arrange(question2$plot2); dev.new()
@@ -125,7 +170,7 @@
 	# Simulation 3
 	########
 
-	question3 <- doQuestionOne(quote(2 + sin(2 * x)), noise = 0)
+	question3 <- doQuestionOne(equation = quote(2 + sin(2 * x)), noise = 0)
 	
 	question3$plot1; dev.new()
 	grid.arrange(question3$plot2); dev.new()
@@ -187,13 +232,143 @@
 	q1 <- doQuestionOne(num.train = 100, noise = 5, equation = quote(2 + sin(2 * x))) # given training dataset with 100
 	grid.arrange(q1$plot2); dev.new()
 
-	q2 <- doQuestionOne(num.train = 1000, noise = 5, equation = quote(2 + sin(2 * x))) # given training dataset with 100
+	q2 <- doQuestionOne(num.train = 1000, noise = 5, equation = quote(2 + sin(2 * x))) # given training dataset with 1000
 	grid.arrange(q2$plot2)
 
 	# Holding the amount of noise fixed, as the training dataset increases, the likelihood of the of superfluous features chosen to predict y-hat decreases. That is, we are able to more robustly
 	# tease out the true relationship between y and x. Again, as before, holding the amount of noise fixed, as K increases, then algoritim uses more features to predict y-hat; thus the likelihood that
 	# the features are spurious decreases, giving a lower MSE. Please note the above graphs.
-	
+
 ########
 # Question 2
 ########
+	
+	########
+	# Part 1
+	########
+
+	# pairs(UC)
+	summary(UC)
+
+	########
+	# Part 2
+	########
+
+	ntrain <- round(NROW(UC) * 0.75) # sample 75% of training dataset
+	wtrain <- sample(1:NROW(UC), ntrain) #these are the training rows
+	
+	train <- UC[wtrain]
+	test <- UC[-wtrain]
+
+	########
+	# Part 3
+	########
+
+	base.plot <- ggplot(data = train, aes(x = mileage, y = price)) + 
+						geom_point(color = "darkgrey", size = 1, alpha = 3 / 5) # show the relationship
+
+	linear.plot <- 	base.plot + 
+					geom_smooth(method = "lm", col = 'blue', linetype = "dashed", show.legend = TRUE) + # lm(price ~ mileage, data = train)
+					geom_text(aes(x = 1e5, y = 1e4, label = 'Linear Fit', sep = ""), vjust = 4, size = 4, color = "blue") +
+					ylim(0, 85000)
+							
+	print(linear.plot)
+
+	########
+	# Part 4
+	########
+
+	findBestPoly <- function(FUN, P = 1:15, data = train){ #gets best polynomial 
+					
+					poly <- list() # add a poly term with each succession
+					for(p in P){ 
+						cv.error <-  eval(FUN) # FUN must return MSE
+						poly[[p]] <- cv.error
+					}
+
+					MSEcv <- cbind.data.frame(P = P, MSE = do.call(rbind, poly)) #log for better scaling
+					optimal.poly <- MSEcv[which.min(MSEcv$MSE), ]$P # polynomial which minimizes cv.error
+					return(list(MSEcv = MSEcv, optimal.P = optimal.poly))
+	}
+
+	poly.fit <- findBestPoly(FUN = quote(cv.glm(train, glm(price ~ poly(mileage, p, raw = TRUE), data = train), K = 5)$delta[1])) # find best polynomial line by cv
+	glm.best <- glm(price ~ poly(mileage, poly.fit$optimal.P, raw = TRUE), data = train) # fit the best glm given optimal polynomial from cv
+	glm.yhat <- predict(glm.best, test) # get glm predictions for test set
+
+	polyMSEs <- as.vector(NULL) # get OOS MSE for all non-optimal polynomial degrees
+	for(p in 1:15){ 
+		glm.given <- glm(price ~ poly(mileage, p, raw = TRUE), data = train) # fit the glm given polynomial p
+		glm.est <- predict(glm.given, test) # get glm predictions for test set
+		polyMSEs[p] <- mean((glm.est - test[,price]) ^ 2)# OOS MSE 
+	}
+
+	### TO DO something is not right with MSEs
+
+	glm.mse.plot <- ggplot(data = as.data.frame(polyMSEs), aes(x = 1:15, y = polyMSEs)) + geom_point(color = "red", size = 4, alpha = 3 / 5) + xlab("log(MSE)") + ggtitle("GLM Polynomials vs OOS MSE")
+	print(glm.mse.plot)
+
+	poly.plot <- 	linear.plot + 
+					geom_smooth(method = "lm", formula = y ~ poly(x, poly.fit$optimal.P, raw = TRUE), col = 'red', linetype = "solid") + # plot the optimal polynomial fit on all the data
+					geom_text(aes(x = 4e5, y = 3e4, label = paste('Optimal Polynomial Term:', poly.fit$optimal.P, "\n", "(GLM)", sep = ""), sep = ""), vjust = 4, size = 4, color = "red") +
+					ggtitle("Best fit Linear & Polynomial models on training data")
+	print(poly.plot)
+
+	########
+	# Part 5
+	########
+
+	## KNN ##
+
+		knn.fit <- docvknn(x = as.data.frame(train$mileage), y = as.vector(train$price), k = 1:20, nfold = 5) #get MSE for each K given 5 folds	
+		knn <- kknn(formula = price ~ mileage, train = train, test = test, kernel = "rectangular", k = which.min(knn.fit)) # fit knn to all training data given best k
+		knn.yhat <- data.frame(fit = knn$fitted.values)
+
+		knnMSEs <- as.vector(NULL) # get OOS MSE for all non-optimal Ks
+		for(k in 1:20){ 
+			knn.given <- kknn(formula = price ~ mileage, train = train, test = test, kernel = "rectangular", k = k) # fit the glm given polynomial p
+			knn.est <- as.data.frame(knn.given$fitted.values) # get glm predictions for test set
+			knnMSEs[k] <- mean((as.matrix(knn.est) - test[ ,price]) ^ 2) # OOS MSE 
+		}
+
+		## TO DO MSEs are fucked up
+		knn.mse.plot <- ggplot(data = as.data.frame(knnMSEs), aes(x = 1:20, y = knnMSEs)) + geom_point(color = "red", size = 4, alpha = 3 / 5) + xlab("Ks") + ggtitle("KNN(Ks) vs OOS MSE") + ylab("MSE")
+		print(knn.mse.plot)
+
+		knn.plot <- 	poly.plot + 
+						geom_line(data = knn.yhat, aes(y = fit, x = test[ ,mileage]), col = "green") +
+						geom_text(aes(x = 2e5, y = 4e4, label = paste('Optimal K:', which.min(knn.fit), "\n", "(KNN)", sep = ""), sep = ""), vjust = 4, size = 4, color = "green") +
+						ggtitle("Best fit Linear & Polynomial & KNN & Tree models on testing data")
+		print(knn.plot)
+
+	## Tree ##
+
+		tree.fit <- rpart(price ~ mileage, data = train, control = rpart.control(minsplit = 5,  cp = 0.0001, xval = 5)) #xval is 5 fold cross validation; and allow for complex tree
+		tree.table <- printcp(tree.fit)
+		best.cp <- tree.fit$cptable[which.min(tree.fit$cptable[ ,"xerror"]), "CP"] # complexity parameter that minimizes MSE
+		best.tree <- prune(tree.fit, cp = best.cp)
+		tree.yhat <- data.frame(fit = predict(best.tree, test))
+
+		treeMSEs <- as.vector(NULL) # get OOS MSE for all non-optimal trees
+		for(t in 1:NROW(tree.table)){ 
+			given.cp <- tree.fit$cptable[t, "CP"]
+			given.tree <- prune(tree.fit, cp = given.cp)
+			tree.est <- predict(given.tree, test)
+			treeMSEs[t] <- mean((tree.est - test[,price]) ^ 2)# OOS MSE 
+		}
+
+		tree.mse.plot <- ggplot(data = as.data.frame(treeMSEs), aes(x = 1:NROW(tree.table), y = treeMSEs)) + 
+								geom_point(color = "red", size = 4, alpha = 3 / 5) + 
+								xlab("complexity Parameter") + ggtitle("Tree(Cp) vs OOS MSE") + ylab("MSE")
+		print(tree.mse.plot)
+
+		tree.plot <- 	knn.plot + 
+						geom_line(data = tree.yhat, aes(y = fit, x = test[ ,mileage]), col = "orange") + 
+						geom_text(aes(x = 2e5, y = 6e4, label = paste('Optimal Complexity Parameter:', round(best.cp, 5), "\n", "(CART)", sep = ""), sep = ""), vjust = 4, size = 4, color = "orange") +
+						ggtitle("Best fit Linear & Polynomial & KNN & Tree models on testing data")
+		print(tree.plot)
+
+		which.min(data.frame(best.tree = min(treeMSEs), best.knn = min(knnMSEs), best.poly = min(polyMSEs))) # model that has lowest OOS MSE; choose this model 
+
+	########
+	# Part 6
+	########
