@@ -228,7 +228,10 @@
 	# This, however, is notwithstanding the generated noise that greatly deteoriates the predictive power of the Knn algoritm as noted by the 
 	# continued average decrease in Knn MSE relative to the MSE of the linear model.
 
-	# Bonus Question:
+	########
+	# BONUS
+	########
+
 	q1 <- doQuestionOne(num.train = 100, noise = 5, equation = quote(2 + sin(2 * x))) # given training dataset with 100
 	grid.arrange(q1$plot2); dev.new()
 
@@ -302,7 +305,7 @@
 		polyMSEs[p] <- mean((glm.est - test[,price]) ^ 2)# OOS MSE 
 	}
 
-	### TO DO something is not right with MSEs
+### TO DO something is not right with MSEs ?? why so large, normal?? 
 
 	glm.mse.plot <- ggplot(data = as.data.frame(polyMSEs), aes(x = 1:15, y = polyMSEs)) + geom_point(color = "red", size = 4, alpha = 3 / 5) + xlab("log(MSE)") + ggtitle("GLM Polynomials vs OOS MSE")
 	print(glm.mse.plot)
@@ -319,19 +322,19 @@
 
 	## KNN ##
 
-		knn.fit <- docvknn(x = as.data.frame(train$mileage), y = as.vector(train$price), k = 1:20, nfold = 5) #get MSE for each K given 5 folds	
+		knn.fit <- docvknn(x = as.data.frame(train$mileage), y = as.vector(train$price), k = 1:50, nfold = 5) #get MSE for each K given 5 folds	
 		knn <- kknn(formula = price ~ mileage, train = train, test = test, kernel = "rectangular", k = which.min(knn.fit)) # fit knn to all training data given best k
 		knn.yhat <- data.frame(fit = knn$fitted.values)
 
 		knnMSEs <- as.vector(NULL) # get OOS MSE for all non-optimal Ks
-		for(k in 1:20){ 
+		for(k in 1:50){ 
 			knn.given <- kknn(formula = price ~ mileage, train = train, test = test, kernel = "rectangular", k = k) # fit the glm given polynomial p
 			knn.est <- as.data.frame(knn.given$fitted.values) # get glm predictions for test set
 			knnMSEs[k] <- mean((as.matrix(knn.est) - test[ ,price]) ^ 2) # OOS MSE 
 		}
 
-		## TO DO MSEs are fucked up
-		knn.mse.plot <- ggplot(data = as.data.frame(knnMSEs), aes(x = 1:20, y = knnMSEs)) + geom_point(color = "red", size = 4, alpha = 3 / 5) + xlab("Ks") + ggtitle("KNN(Ks) vs OOS MSE") + ylab("MSE")
+## TO DO MSEs are fucked up
+		knn.mse.plot <- ggplot(data = as.data.frame(knnMSEs), aes(x = 1:50, y = knnMSEs)) + geom_point(color = "red", size = 4, alpha = 3 / 5) + xlab("Ks") + ggtitle("KNN(Ks) vs OOS MSE") + ylab("MSE")
 		print(knn.mse.plot)
 
 		knn.plot <- 	poly.plot + 
@@ -343,20 +346,21 @@
 	## Tree ##
 
 		tree.fit <- rpart(price ~ mileage, data = train, control = rpart.control(minsplit = 5,  cp = 0.0001, xval = 5)) #xval is 5 fold cross validation; and allow for complex tree
-		tree.table <- printcp(tree.fit)
 		best.cp <- tree.fit$cptable[which.min(tree.fit$cptable[ ,"xerror"]), "CP"] # complexity parameter that minimizes MSE
 		best.tree <- prune(tree.fit, cp = best.cp)
 		tree.yhat <- data.frame(fit = predict(best.tree, test))
 
+		print(tree.fit$cptable[which.min(tree.fit$cptable[ ,"xerror"]), ]) # best tree parameters
+
 		treeMSEs <- as.vector(NULL) # get OOS MSE for all non-optimal trees
-		for(t in 1:NROW(tree.table)){ 
+		for(t in 1:NROW(tree.fit$cptable)){ 
 			given.cp <- tree.fit$cptable[t, "CP"]
 			given.tree <- prune(tree.fit, cp = given.cp)
 			tree.est <- predict(given.tree, test)
 			treeMSEs[t] <- mean((tree.est - test[,price]) ^ 2)# OOS MSE 
 		}
 
-		tree.mse.plot <- ggplot(data = as.data.frame(treeMSEs), aes(x = 1:NROW(tree.table), y = treeMSEs)) + 
+		tree.mse.plot <- ggplot(data = as.data.frame(treeMSEs), aes(x = 1:NROW(tree.fit$cptable), y = treeMSEs)) + 
 								geom_point(color = "red", size = 4, alpha = 3 / 5) + 
 								xlab("complexity Parameter") + ggtitle("Tree(Cp) vs OOS MSE") + ylab("MSE")
 		print(tree.mse.plot)
@@ -367,8 +371,91 @@
 						ggtitle("Best fit Linear & Polynomial & KNN & Tree models on testing data")
 		print(tree.plot)
 
-		which.min(data.frame(best.tree = min(treeMSEs), best.knn = min(knnMSEs), best.poly = min(polyMSEs))) # model that has lowest OOS MSE; choose this model 
+		best.univariate <- which.min(data.frame(best.tree = min(treeMSEs), best.knn = min(knnMSEs), best.poly = min(polyMSEs))) # model that has lowest OOS MSE; choose this model 
+		print(best.univariate) # this is the best univarite model
 
 	########
 	# Part 6
 	########
+
+	scale.xs <- function(x) {return((x - min(x)) / (max(x) - min(x)))} #scale the xs
+	train[ , ':=' (	mileage = scale.xs(mileage), year = scale.xs(year))]
+	test[ , ':=' (	mileage = scale.xs(mileage), year = scale.xs(year))]
+
+	## KNN ##
+
+		knn.fit <- docvknn(	x = train[ ,c('mileage', 'year'), with = FALSE], # multivariate version
+							y = as.vector(train$price), k = 1:50, nfold = 5) #get MSE for each K given 5 folds
+
+		knn <- kknn(formula = price ~ year + mileage, 	
+					train = train[ ,c('price','mileage', 'year'), with = FALSE], 
+					test = test[ ,c('price','mileage', 'year'), with = FALSE], 
+					kernel = "rectangular", 
+					k = which.min(knn.fit)) # fit knn to all training data given best k
+
+		knn.yhat <- data.frame(fit = knn$fitted.values)
+
+		knnMSEs <- as.vector(NULL) # get OOS MSE for all non-optimal Ks
+		for(k in 1:50){ 
+			knn.given <- kknn(formula = price ~ year + mileage, 
+								train = train[ ,c('price','mileage', 'year'), with = FALSE], 
+								test = test[ ,c('price','mileage', 'year'), with = FALSE], 
+								kernel = "rectangular", k = k) # fit the glm given polynomial p
+
+			knn.est <- as.data.frame(knn.given$fitted.values) # get glm predictions for test set
+			knnMSEs[k] <- mean((as.matrix(knn.est) - test[ ,price]) ^ 2) # OOS MSE 
+		}
+
+## TO DO MSEs are fucked up
+		knn.mse.plot <- ggplot(data = as.data.frame(knnMSEs), aes(x = 1:50, y = knnMSEs)) + geom_point(color = "red", size = 4, alpha = 3 / 5) + xlab("Ks") + ggtitle("KNN(Ks) vs OOS MSE") + ylab("MSE")
+		print(knn.mse.plot)
+		which.min(knn.fit) # optimal K
+
+	## Tree ##
+
+		tree.fit <- rpart(	price ~ mileage + year, 
+							data = train[ ,c('price','mileage', 'year'), with = FALSE], 
+							control = rpart.control(minsplit = 5,  cp = 0.0001, xval = 5)) #xval is 5 fold cross validation; and allow for complex tree
+		best.cp <- tree.fit$cptable[which.min(tree.fit$cptable[ ,"xerror"]), "CP"] # complexity parameter that minimizes MSE
+		best.tree <- prune(tree.fit, cp = best.cp)
+		tree.yhat <- data.frame(fit = predict(best.tree, test))
+
+		print(tree.fit$cptable[which.min(tree.fit$cptable[ ,"xerror"]), ]) # best tree parameters
+
+		treeMSEs <- as.vector(NULL) # get OOS MSE for all non-optimal trees
+		for(t in 1:NROW(tree.fit$cptable)){ 
+			given.cp <- tree.fit$cptable[t, "CP"]
+			given.tree <- prune(tree.fit, cp = given.cp)
+			tree.est <- predict(given.tree, test)
+			treeMSEs[t] <- mean((tree.est - test[ ,price]) ^ 2)# OOS MSE 
+		}
+
+		tree.mse.plot <- ggplot(data = as.data.frame(treeMSEs), aes(x = 1:NROW(tree.fit$cptable), y = treeMSEs)) + 
+								geom_point(color = "red", size = 4, alpha = 3 / 5) + 
+								xlab("complexity Parameter") + ggtitle("Tree(Cp) vs OOS MSE") + ylab("MSE")
+		print(tree.mse.plot)
+
+		best.multivariate <- which.min(data.frame(best.tree = min(treeMSEs), best.knn = min(knnMSEs))) # model that has lowest OOS MSE; choose this model
+		print(best.multivariate) # this is the best multivariate model, compare to univariate
+
+	########
+	# Part 7
+	########
+
+	tree.fit <- rpart(price ~ ., data = train, control = rpart.control(minsplit = 5,  cp = 0.0001, xval = 5)) #xval is 5 fold cross validation; and allow for complex tree
+	best.cp <- tree.fit$cptable[which.min(tree.fit$cptable[ ,"xerror"]), "CP"] # complexity parameter that minimizes MSE
+	best.tree <- prune(tree.fit, cp = best.cp)
+	tree.yhat <- data.frame(fit = predict(best.tree, test))
+	MSE <- mean((tree.yhat - test[ ,price]) ^ 2)
+	print(MSE) # MSE of tree fit to all features
+
+	########
+	# BONUS
+	########
+
+	# Explanation: In order to find the most relevant variables we look towards the toward the complexity parameter output found in the tree output. We note the tabulated results that indicate
+	# how much each split contributes to improving the 'fit' of the tree model. These are the most important variables. We could now isolate these splits and their respective variables. Then, we
+	# could use these variabls as the inputs to a more simple, interactive linear model. Because these variables are the most important explanatory features in the dataset, our interacted linear model 
+	# should now predict better than a naive linear or polynomial model
+
+	print(tree.fit$cptable) # aka isolate top 6 variables and use them in an interacted linear regression model
