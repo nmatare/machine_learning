@@ -17,7 +17,7 @@
 
 	UC <- as.data.table(read.csv(url("https://raw.githubusercontent.com/ChicagoBoothML/DATA___UsedCars/master/UsedCars.csv")))
 	UC[,UID := .I];	setkey(UC, UID) # create UID column
-	set.seed(666) # the devils seed
+	set.seed(1) # the devils seed
 
 	# Helper functions from TA
 	mse <- function(y,yhat) {return(sum((y - yhat) ^ 2))}
@@ -133,7 +133,7 @@
 					}
 
 					MSEs <- cbind.data.frame(K = Ks, MSE = do.call(rbind, MSEs)) # get MSEs for each K (K here is really -log(1/K))
-					linear <- lm(y ~ x, data = simulation$train) #fit linear model
+					linear <- lm(y ~ x, data = simulation$train) # fit linear model
 					yhat <- predict(linear, simulation$test)
 					MSE.lin <- mean((simulation$test$y - yhat) ^ 2)
 
@@ -257,6 +257,7 @@
 	# Part 2
 	########
 
+	set.seed(1)
 	ntrain <- round(NROW(UC) * 0.75) # sample 75% of training dataset
 	wtrain <- sample(1:NROW(UC), ntrain) #these are the training rows
 	
@@ -320,7 +321,7 @@
 	# Part 5
 	########
 
-	## KNN ##
+	## KNN ## // caret package implementation of cv.knn is too slow; use custom
 
 		knn.fit <- docvknn(x = as.data.frame(train$mileage), y = as.vector(train$price), k = 1:50, nfold = 5) #get MSE for each K given 5 folds	
 		knn <- kknn(formula = price ~ mileage, train = train, test = test, kernel = "rectangular", k = which.min(knn.fit)) # fit knn to all training data given best k
@@ -333,7 +334,7 @@
 			knnMSEs[k] <- mean((as.matrix(knn.est) - test[ ,price]) ^ 2) # OOS MSE 
 		}
 
-## TO DO MSEs are fucked up
+## TO DO MSEs are fucked up # the observations have to been divided 
 		knn.mse.plot <- ggplot(data = as.data.frame(knnMSEs), aes(x = 1:50, y = knnMSEs)) + geom_point(color = "red", size = 4, alpha = 3 / 5) + xlab("Ks") + ggtitle("KNN(Ks) vs OOS MSE") + ylab("MSE")
 		print(knn.mse.plot)
 
