@@ -18,6 +18,8 @@ temp = rpart(medv~lstat, data=Boston,
                                    cp=0.001,    # we will consider even small improvements in a fit 
                                    xval=0)      # do not run cross-validation now
              )
+#min split is the minimum number of observations per split; so each rectangle needs a min of 5 splits 
+
 rpart.plot(temp)
 #if the tree is too small, make cp smaller!!
 
@@ -33,10 +35,10 @@ plot(Boston$lstat, Boston$medv, cex=.5, pch=16) #plot data
 oo=order(Boston$lstat)
 lines(Boston$lstat[oo],boston.fit[oo],col="red",lwd=3) #step function fit
 
-# predict at lstat = 15 and 25.
-preddf = data.frame(lstat=c(15,25))
-yhat = predict(boston.tree,preddf)
-points(preddf$lstat,yhat,col="blue",pch="*",cex=3)
+                                                        # predict at lstat = 15 and 25.
+                                                        preddf = data.frame(lstat=c(15,25))
+                                                        yhat = predict(boston.tree,preddf)
+                                                        points(preddf$lstat,yhat,col="blue",pch="*",cex=3)
 
 ###################################
 ## Fit the tree using lstat and dis
