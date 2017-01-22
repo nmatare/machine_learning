@@ -1,0 +1,731 @@
+---
+title: '41204-01 Machine Learning | Homework 1'
+subtitle: 'Professor Mladen Kolar'
+author: 'Patrick Miller, Vandana Ramakrishnan, Nathaniel Matare, Ernie Mori, Jordan Bell-Masterson'
+date: '\today'
+output: pdf_document
+fontsize: 12
+geometry: margin=0.8in
+---
+  
+```{r setup, include=FALSE, cache=FALSE}
+
+	library(ggplot2)
+	require(gridExtra)
+	library(MASS)
+	library(kknn)
+	library(boot)
+	library(rpart)
+	library(data.table)
+
+	UC <- as.data.table(read.csv(url("https://raw.githubusercontent.com/ChicagoBoothML/DATA___UsedCars/master/UsedCars.csv")))
+	UC[,UID := .I];	setkey(UC, UID) # create UID column
+	used.cars <- UC
+	set.seed(1) # the devils seed
+
+	# Helper functions from TA
+	mse <- function(y,yhat) {return(sum((y - yhat) ^ 2))}
+
+	doknn <- function(x, y, xp, k){
+					kdo=k[1]
+					train = data.frame(x,y=y)
+					test = data.frame(xp); names(test) = names(train)[1:(ncol(train)-1)]
+					near  = kknn(y~.,train,test,k=kdo,kernel='rectangular')
+					return(near$fitted)
+	}
+
+	docv <- function(x, y, set, predfun, loss, nfold = 10, doran = TRUE, verbose = TRUE, ...){
+					#a little error checking
+					if(!(is.matrix(x) | is.data.frame(x))) {cat('error in docv: x is not a matrix or data frame\n'); return(0)}
+					if(!(is.vector(y))) {cat('error in docv: y is not a vector\n'); return(0)}
+					if(!(length(y)==nrow(x))) {cat('error in docv: length(y) != nrow(x)\n'); return(0)}
+
+					nset = nrow(set); n=length(y) #get dimensions
+					if(n==nfold) doran=FALSE #no need to shuffle if you are doing them all.
+					cat('in docv: nset,n,nfold: ',nset,n,nfold,'\n')
+					lossv = rep(0,nset) #return values
+					if(doran) {ii = sample(1:n,n); y=y[ii]; x=x[ii,,drop=FALSE]} #shuffle rows
+
+					fs = round(n/nfold) # fold size
+					for(i in 1:nfold) { #fold loop
+					bot=(i-1)*fs+1; top=ifelse(i==nfold,n,i*fs); ii =bot:top
+					if(verbose) cat('on fold: ',i,', range: ',bot,':',top,'\n')
+					xin = x[-ii,,drop=FALSE]; yin=y[-ii]; xout=x[ii,,drop=FALSE]; yout=y[ii]
+						for(k in 1:nset) { #setting loop
+						  yhat = predfun(xin,yin,xout,set[k,],...)
+						  lossv[k]=lossv[k]+loss(yout,yhat)
+						} 
+					} 
+	  				return(lossv)
+	}
+
+	docvknn <- function(x, y, k, nfold = 10, doran = TRUE, verbose = TRUE){return(docv(x, y, matrix(k, ncol = 1), doknn, mse, nfold = nfold, doran = doran, verbose = verbose))}
+
+########
+# Question 1
+########
+
+	makeSimulation <- function(equation, num.train = 100, noise = 0){
+					# noise controls the number of superfurlous predictor vars added to dataset
+
+					# create training dataset
+					x <- rnorm(num.train, mean = 0, sd = 1) #predictor x
+					x.noise <- NULL					
+					if(noise > 0) x.noise <- as.data.frame(sapply(rep(num.train, noise), function(w) rnorm(w, mean = 0, sd = 1))) # generate noise variables from normal distribution
+
+					e <- rnorm(num.train, mean = 0, sd = 1) # random noise
+					y <- eval(equation) + e # y is the function plus some noise
+
+					train <- as.data.frame(cbind(y, x, x.noise)) #train models on predictor and noise
+		
+					test <- list() # create testing dataset
+					for(i in 1:100){ #do 100 times to get 10,000 observations
+
+						x <- rnorm(100, mean = 0, sd = 1)
+						e <- rnorm(100, mean = 0, sd = 1) # random noise
+						y <- eval(equation) + e
+
+						x.noise <- NULL					
+						if(noise > 0) x.noise <- as.data.frame(sapply(rep(100, noise), function(w) rnorm(w, mean = 0, sd = 1))) # generate noise variables from normal distribution
+
+						test[[i]] <- as.data.frame(cbind(y, x, x.noise))  # true model has no noise so don't include it in the test set
+					}
+
+					test <- do.call(rbind.data.frame, test)
+					stopifnot(isTRUE(dim(test)[1] == 10000)) # sanity check
+					return(list(train = train, test = test))
+	}
+
+	makeKnn <- function(data, K){ # wrapper function for Knn
+					knn <- kknn(		formula = y ~ ., # where . is everything or x or x1, x2, x3, etc
+										train = data$train, # train on relationship between x and y
+										test = data$test, # given x, find y 
+										kernel = "rectangular", 
+										k = K)
+					return(knn$fitted.values)
+	}
+
+	doQuestionOne <- function(equation, Ks = 2:15, ...){
+
+					#p1/p3 control verbosity of print
+					simulation <- makeSimulation(equation, ... = ...)
+
+					# Part 2 and 3
+					base.plot <- ggplot(	data = simulation$test, aes(x = x, y = y)) + 
+											geom_point(color = "darkgrey", size = 1, alpha = 3 / 5) + # show the relationship
+											stat_function(fun = function(x) eval(equation), colour = "black") + # show the true linear equation
+											geom_text(aes(x = max(x) - 1, y = 8, label = 'True Function', sep = ""), vjust = -4, size = 4, color = "black") # add text
+
+					plot1 <- 	base.plot + ggtitle("Linear Model")	+		
+								geom_smooth(method = "lm", col = 'blue', linetype = "dashed", show.legend = TRUE) + # show the true line; this is essentially lm(y ~ x, data = simulation)
+								geom_text(aes(x = max(x) - 1, y = 8, label = 'Linear Fit', sep = ""), vjust = 4, size = 4, color = "blue")
+
+					# Part 4
+					knn2fitted <- 	cbind.data.frame(fit = makeKnn(K = 2, data = simulation), x = simulation$test$x) #fit on training data and then output the fitted y values and corresponding x's
+					knn12fitted <- 	cbind.data.frame(fit = makeKnn(K = 12, data = simulation), x = simulation$test$x)
+
+					plot.knn2 <-  base.plot + geom_line(data = knn2fitted, aes(y = fit, x = x), col = "green") + ggtitle("KNN at K = 2")
+					plot.knn12 <- base.plot + geom_line(data = knn12fitted, aes(y = fit, x = x), col = "blue") + ggtitle("KNN at K = 12")
+
+					plot2 <- arrangeGrob(plot.knn2, plot.knn12, ncol = 2)
+
+					# Part 5
+					MSEs <- list()
+					for(k in Ks){
+						fitted <- makeKnn(K = k, data = simulation) # get fitted vals
+						MSEs[k] <- mean((simulation$test$y - fitted) ^ 2) # get MSE
+					}
+
+					MSEs <- cbind.data.frame(K = Ks, MSE = do.call(rbind, MSEs)) # get MSEs for each K (K here is really -log(1/K))
+					linear <- lm(y ~ x, data = simulation$train) # fit linear model
+					yhat <- predict(linear, simulation$test)
+					MSE.lin <- mean((simulation$test$y - yhat) ^ 2)
+
+					plot3 <- ggplot(		data = MSEs, aes(x = K, y = MSE)) + geom_point() + # plot MSE of all Ks
+											geom_hline(yintercept = MSE.lin, col = "blue", linetype = "dashed") + # linear MSE
+											xlab("log(1/K)") +
+											ggtitle("MSEs of KNNs")
+	
+
+					return(list(plot1 = plot1, plot2 = plot2, plot3 = plot3))								
+	}
+
+```
+
+# Problem 1
+## 1.1
+
+We simulate the data in accordance with section 1.
+
+```{r question1.1, include=TRUE, cache=TRUE}
+
+set.seed(1)
+x_train = rnorm(100)
+epsilon = rnorm(100)
+y_train_created = 1.8*x_train+2+epsilon
+x_test = rnorm(10000)
+x_test=x_test[order(x_test)]
+epsilon_test = rnorm(10000)
+y_test_created = 1.8*x_test+2+epsilon_test
+
+```
+
+## 1.2 / 1.3 
+
+We plot the true relationship and the best fit line.
+
+```{r question1.2.3, echo=FALSE, eval=TRUE, include=TRUE, fig.height=5, fig.align='center', message=FALSE}
+
+plot(x_train,y_train_created)
+abline(a=1.8,b=2)
+simple.lm=lm(y_train_created~x_train)
+abline(a=simple.lm$coefficients[1],b=simple.lm$coefficients[2],col="blue",lty=2)
+
+```
+
+## 1.4
+
+We show the linear model, KNN at K = 2, and KNN at K = 12
+
+```{r question1.4, echo=FALSE, eval=TRUE, include=TRUE, fig.height=5, fig.align='center', message=FALSE}
+
+train=data.frame(y_train_created,x_train)
+test=data.frame(x_train=x_test)
+plot(x_train,y_train_created)
+abline(a=1.8,b=2)
+abline(a=simple.lm$coefficients[1],b=simple.lm$coefficients[2],col="green")
+kf2 = kknn(y_train_created~x_train,train,test,k=2,kernel = "rectangular")
+lines(test$x_train,kf2$fitted.values,col="blue",lwd=2)
+kf12 = kknn(y_train_created~x_train,train,test,k=12,kernel = "rectangular")
+lines(test$x_train,kf12$fitted.values,col="red",lwd=2)
+legend("topleft",fill=c("blue","red","green"),c("k=2","k=12","linear"))
+```
+
+## 1.5
+
+We show the RMSE vs KNN at K = 2:15
+
+```{r question1.5, echo=FALSE, eval=TRUE, include=TRUE, fig.height=4, fig.align='center', message=FALSE}
+
+library(kknn)
+#loop over values of k, fit on train, predict on test
+kvec=2:15; nk=length(kvec)
+outMSE = rep(0,nk) #will will put the out-of-sample MSE here
+  for(i in 1:nk) {
+    near = kknn(y_train_created~x_train,train,test,k=kvec[i],kernel = "rectangular")
+    MSE = mean((y_test_created-near$fitted.values)^2)
+    outMSE[i] = MSE
+  }
+
+#plot
+plot(log(1/kvec),sqrt(outMSE),ylim=c(.95,1.3))
+imin = which.min(outMSE)
+# cat("best k is ",kvec[imin],"\n") # Ernie got 6 too
+
+#linear test set MSE
+
+y_test_predicted=predict(simple.lm,newdata=test,type='response')
+#sqrt(mean((y_test_created-y_test_predicted)^2))
+abline(h=sqrt(mean((y_test_created-y_test_predicted)^2)),lty=2) #Fixed! Hooray
+
+```
+
+Clearly, at least based on MSE, the linear model performs much better. This makes some intuitive sense as the actual relationship is linear. This is true regardless of the k value used (as seen in the graph). Beyond the actual MSE, just looking at the graphs shows how much closed the linear model appears to the "true" model (the black line).
+
+\newpage
+## 1.6
+
+We show the linear model, KNN at K = 2, and KNN at K = 12
+
+```{r question1.6, echo=FALSE, eval=TRUE, include=TRUE, fig.height=5, fig.align='center', message=FALSE}
+
+current.relation = function(x,e){
+  y=exp(x+1)+3+e
+  return(y)
+}
+
+x_train = rnorm(100)
+epsilon = rnorm(100)
+y_train_created = current.relation(x_train,epsilon)
+x_test = rnorm(10000)
+x_test=x_test[order(x_test)]
+epsilon_test = rnorm(10000)
+y_test_created = current.relation(x_test,epsilon_test)
+plot(x_train,y_train_created)
+x=1:10000/1000-5
+y=current.relation(x,0)
+lines(x,y)
+simple.lm=lm(y_train_created~x_train)
+abline(a=simple.lm$coefficients[1],b=simple.lm$coefficients[2],col="blue")
+train=data.frame(y_train_created,x_train)
+test=data.frame(x_train=sort(x_test))
+kf2 = kknn(y_train_created~x_train,train,test,k=2,kernel = "rectangular")
+lines(test$x_train,kf2$fitted.values,col="blue",lwd=2)
+kf12 = kknn(y_train_created~x_train,train,test,k=12,kernel = "rectangular")
+lines(test$x_train,kf12$fitted.values,col="red",lwd=2)
+legend("topleft",fill=c("blue","red","green"),c("k=2","k=12","linear"))
+#Should be the end of plot
+#loop over values of k, fit on train, predict on test
+```
+
+We show the RMSE vs KNN at K = 2:15
+
+```{r question1.62, echo=FALSE, eval=TRUE, include=TRUE, fig.height=5, fig.align='center', message=FALSE}
+kvec=2:15; nk=length(kvec)
+outMSE = rep(0,nk) #will will put the out-of-sample MSE here
+for(i in 1:nk) {
+  near = kknn(y_train_created~x_train,train,test,k=kvec[i],kernel = "rectangular")
+  MSE = mean((y_test_created-near$fitted.values)^2)
+  outMSE[i] = MSE
+}
+#outMSE
+#plot
+plot(log(1/kvec),sqrt(outMSE),ylim=c(2.5,4.5))
+imin = which.min(outMSE)-1
+#cat("best k is ",kvec[imin],"\n")
+y_test_predicted=predict(simple.lm,newdata=test,type='response')
+#sqrt(mean((y_test_created-y_test_predicted)^2))
+abline(h=sqrt(mean((y_test_created-y_test_predicted)^2)),lty=2) #Fixed! Hooray
+```
+
+Here, we have the opposite conclusion - the linear model performs worse than even the worst k value knn model. In this case, knn does a significantly better job. Again, this is a somewhat intuitive result as a linear model will never be able to fit a curved relationship like this - something knn would be much more able to do. 
+
+\newpage
+## 1.7
+
+We show the linear model, KNN at K = 2, and KNN at K = 12
+
+```{r question1.7, echo=FALSE, eval=TRUE, include=TRUE, fig.height=5, fig.align='center', message=FALSE}
+
+current.relation = function(x,e){
+  y=sin(2*x)+2+e
+  return(y)
+}
+
+x_train = rnorm(100)
+epsilon = rnorm(100)
+y_train_created = current.relation(x_train,epsilon)
+x_test = rnorm(10000)
+x_test=x_test[order(x_test)]
+epsilon_test = rnorm(10000)
+y_test_created = current.relation(x_test,epsilon_test)
+plot(x_train,y_train_created)
+x=1:10000/1000-5
+y=current.relation(x,0)
+lines(x,y)
+simple.lm=lm(y_train_created~x_train)
+abline(a=simple.lm$coefficients[1],b=simple.lm$coefficients[2],col="blue")
+train=data.frame(y_train_created,x_train)
+test=data.frame(x_train=sort(x_test))
+kf2 = kknn(y_train_created~x_train,train,test,k=2,kernel = "rectangular")
+lines(test$x_train,kf2$fitted.values,col="blue",lwd=2)
+kf12 = kknn(y_train_created~x_train,train,test,k=12,kernel = "rectangular")
+lines(test$x_train,kf12$fitted.values,col="red",lwd=2)
+legend("topleft",fill=c("blue","red","green"),c("k=2","k=12","linear"))
+#Should be the end of plot
+#loop over values of k, fit on train, predict on test
+```
+
+We show the RMSE vs KNN at K = 2:15
+
+```{r question1.72, echo=FALSE, eval=TRUE, include=TRUE, fig.height=5, fig.align='center', message=FALSE}
+kvec=2:15; nk=length(kvec)
+outMSE = rep(0,nk) #will will put the out-of-sample MSE here
+for(i in 1:nk) {
+  near = kknn(y_train_created~x_train,train,test,k=kvec[i],kernel = "rectangular")
+  MSE = mean((y_test_created-near$fitted.values)^2)
+  outMSE[i] = MSE
+}
+#outMSE
+#plot
+plot(log(1/kvec),sqrt(outMSE),ylim=c(1,1.24))#,ylim=c(min(sqrt(outMSE),sqrt(mean((test$x_train-y_test_predicted)^2))),max(sqrt(outMSE),sqrt(mean((test$x_train-y_test_predicted)^2)))))
+imin = which.min(outMSE)
+#cat("best k is ",kvec[imin],"\n") #9 is best, agreed
+y_test_predicted=predict(simple.lm,newdata=test,type='response')
+#sqrt(mean((y_test_created-y_test_predicted)^2))
+abline(h=sqrt(mean((y_test_created-y_test_predicted)^2)),lty=2) #Fixed! Hooray
+
+```
+
+In this case, the knn model again significantly outperforms the linear model, even more definitively in the previous case. A linear model is hopeless at even capturing some of the trend in the data, whereas a knn model can create a fairly accurate sine curve.
+
+\newpage
+## 1.8
+
+The superfluous features have no predictive power. Thus, when the amount of noise increases in the dataset, the KNN algorithm uses spurious features to predict the value of y. If K is small and the number of superfluous features is large, then there is a high likelihood that the algorithm uses many erroneous covariates to attempt to predict y. As K increases, the algorithm uses more correct features to predict y. That is, as the likelihood of the number of spurious features decreases the MSE increases. Please see the below graphs depicting the decrease in MSE as the amount of noise in the dataset increases. KNN, at all values of K, decreases in accuracy as the amount of noise increases. Note though that the linear model has similar issues - it too can get tricked by the noise.
+
+```{r question1.8, echo=FALSE, eval=TRUE, include=TRUE, fig.height=6, fig.align='center', message=FALSE, cache=TRUE}
+
+current.relation = function(x,e){
+  y=sin(2*x)+2+e
+  return(y)
+}
+par(mfrow=c(4,5))
+#First I'm rerunning 1.7
+x_train = rnorm(100)
+epsilon = rnorm(100)
+y_train_created = current.relation(x_train,epsilon)
+x_test = rnorm(10000)
+x_test=x_test[order(x_test)]
+epsilon_test = rnorm(10000)
+y_test_created = current.relation(x_test,epsilon_test)
+
+simple.lm=lm(y_train_created~x_train)
+train=data.frame(y_train_created,x_train)
+test=data.frame(x_train=sort(x_test))
+#Should be the end of plot
+#loop over values of k, fit on train, predict on test
+kvec=2:15; nk=length(kvec)
+outMSE = rep(0,nk) #will will put the out-of-sample MSE here
+for(i in 1:nk) {
+  near = kknn(y_train_created~x_train,train,test,k=kvec[i],kernel = "rectangular")
+  MSE = mean((y_test_created-near$fitted.values)^2)
+  outMSE[i] = MSE
+}
+plot(log(1/kvec),sqrt(outMSE),main="p = 1",ylim=c(1,1.5))#,ylim=c(min(sqrt(outMSE),sqrt(mean((test$x_train-y_test_predicted)^2))),max(sqrt(outMSE),sqrt(mean((test$x_train-y_test_predicted)^2)))))
+y_test_predicted=predict(simple.lm,newdata=test,type='response')
+abline(h=sqrt(mean((y_test_created-y_test_predicted)^2)),lty=2) #Fixed! Hooray
+
+#Now I do it for all p's
+for(p in 2:20)
+{
+  
+x_1 = rnorm(100)
+epsilon = rnorm(100)
+y_train_created = current.relation(x_1,epsilon)
+
+x_train=data.frame(x_1)
+for(i in 2:p){
+  temp.names=names(x_train)
+  x_train=data.frame(x_train,rnorm(100))
+  names(x_train)=c(temp.names,paste0("x_",i))
+}
+head(x_train)
+x_1 = rnorm(10000)
+epsilon_test = rnorm(10000)
+x_test=data.frame(x_1)
+for(i in 2:p){
+  temp.names=names(x_test)
+  x_test=data.frame(x_test,rnorm(10000))
+  names(x_test)=c(temp.names,paste0("x_",i))
+}
+head(x_test)
+y_test_created = current.relation(x_1,epsilon_test)
+#plot(x_train,y_train_created)
+#x=1:10000/1000-5
+#y=current.relation(x,0)
+#lines(x,y)
+full.data=data.frame(y_train_created,x_train)
+simple.lm=lm(y_train_created~.,data=full.data)
+
+train=data.frame(y_train_created,x_train)
+test=x_test
+#kf2 = kknn(y_train_created~.,train,test,k=2,kernel = "rectangular")
+#lines(test$x_train,kf2$fitted.values,col="blue",lwd=2)
+#kf12 = kknn(y_train_created~.,train,test,k=12,kernel = "rectangular")
+#lines(test$x_train,kf12$fitted.values,col="red",lwd=2)
+#legend("topleft",fill=c("blue","red","green"),c("k=2","k=12","linear"))
+
+#loop over values of k, fit on train, predict on test
+kvec=2:15; nk=length(kvec)
+outMSE = rep(0,nk) #will will put the out-of-sample MSE here
+for(i in 1:nk) {
+  near = kknn(y_train_created~.,train,test,k=kvec[i],kernel = "rectangular")
+  MSE = mean((y_test_created-near$fitted.values)^2)
+  outMSE[i] = MSE
+}
+#outMSE
+#plot
+y_test_predicted=predict(simple.lm,newdata=test,type='response')
+plot(log(1/kvec),sqrt(outMSE),main=p,ylim=c(1,1.5))#c(min(sqrt(outMSE),sqrt(mean((y_test_created-y_test_predicted)^2))),max(sqrt(outMSE),sqrt(mean((y_test_created-y_test_predicted)^2)))))
+#imin = which.min(outMSE)
+#cat("best k is ",kvec[imin],"\n")
+abline(h=sqrt(mean((y_test_created-y_test_predicted)^2)),lty=2) #Fixed! Hooray
+}
+
+
+```
+
+As you can see, depending on the specific run, knn frequently outperforms the linear model, but only for certain k values (generally, higher k values). As you can see, as the number of variables increase, the predictions generally get worse (higher MSE). This is due to the additional noise that complicates the model.
+
+\newpage
+## Bonus
+
+Holding the amount of noise fixed, as the training dataset increases in size, the likelihood of superfluous features chosen to predict y decreases; there is a greater likelihood that KNN will select features with true predictive power as opposed to simple noise. As before, holding the amount of noise fixed, as K increases, the algorithm uses more features to predict y-hat. Thus, the likelihood that the chosen features are spurious decreases, giving a lower MSE. See the below graphs: the first set of graphs shows a training dataset of 100 while the second set of graphs show a training dataset of 1000. Noise is held constant in both graphs at five (Five columns of random features)
+
+```{r question1bonus, echo=FALSE, eval=TRUE, include=TRUE, fig.height=4, fig.align='center', message=FALSE, include=TRUE}
+
+	q1 <- doQuestionOne(num.train = 100, noise = 5, equation = quote(2 + sin(2 * x))) # given training dataset with 100
+	grid.arrange(q1$plot2)
+
+	q2 <- doQuestionOne(num.train = 1000, noise = 5, equation = quote(2 + sin(2 * x))) # given training dataset with 1000
+	grid.arrange(q2$plot2)
+
+```
+
+\newpage
+# Problem 2
+## 2.1
+
+After inspecting the data, we find that we could use several features to predict used car price. If we were a car dealer, doing so would allow us to better price our vehicles. We could also determine the range of prices customers might be wiling to pay for comparable used cars. At the same time, a customer might want to value how much they could sell their car for, and this data would help make the prediction.
+
+Another important aspect of this data would be to value individual features/aspects of a car. If you wanted to estimate the mileage cost on a car, you could look at the relationship between mileage and cost. Similarly, when selling a car, this data could be used to value whether or not adding a sound system might be worth the cost. Heck, you could even use this data to estimate the value of car color. 
+
+## 2.2
+
+We split the data into two parts: a training and testing set.
+
+```{r question2.2, fig.height=6, fig.align='center', message=FALSE, fig.height=6, fig.align='center', cache=TRUE}
+
+set.seed(1)
+sample.index=sample(nrow(used.cars),nrow(used.cars)/4)
+used.cars.test=used.cars[sample.index,]
+used.cars.train=used.cars[-sample.index,]
+
+```
+
+## 2.3
+
+We plot the best fit linear regression onto the data
+
+```{r question2.3, echo=FALSE, eval=TRUE, include=TRUE, fig.height=5, fig.align='center', message=FALSE, cache=TRUE}
+
+car.lm=lm(price ~ mileage,data=used.cars.train)
+
+par(mfrow=c(1,1))
+plot(used.cars.train$mileage,used.cars.train$price,pch='.',xlab="Mileage",ylab="Price")
+abline(car.lm)
+
+```
+
+\newpage
+## 2.4
+
+We use cross validation to select the optimal polynomial degree. We find that the optimal polynomial degree is five. Note though how close the MSE is for polynomials 3 to 9; there is not much of a difference between these different degree polynomials and could likely choose any depending on what seed we chose or the number of folds used.
+We next plot the CV MSE as a function of the degree of the polynomial, and a linear polynomial degree five model. 
+
+```{r question2.4, echo=FALSE, eval=TRUE, include=TRUE, fig.height=4, fig.align='center', message=FALSE, cache=TRUE}
+
+n_folds=10
+n_dimensions=10
+avgMSE = rep(0,n_dimensions)
+
+for (d in 1:n_dimensions){
+  ############## NOTE - maybe move the folds outside
+  outMSE = rep(0,n_folds) #will will put the out-of-sample MSE here
+  folds=sample(rep(1:n_folds,length.out=nrow(used.cars.train)))
+  for(i in 1:n_folds)
+  {
+    used.cars.train.current=used.cars.train[folds!=folds[i],]
+    current.lm=lm(price ~ poly(mileage,d),data=used.cars.train.current)
+    predicted.price=predict(current.lm,used.cars.train[folds==folds[i],])
+    outMSE[i]=mean((predicted.price-used.cars.train[folds==folds[i],]$price)^2)
+  }
+  avgMSE[d]=mean(outMSE)
+  
+}
+
+plot(1:n_dimensions,sqrt(avgMSE))
+#which.min(sqrt(avgMSE))
+#choosing 5
+degree=5
+
+poly.lm=lm(price ~ poly(mileage,degree),data=used.cars.train)
+x.plot.data=1:4000*100
+y.plot.data=predict(poly.lm,newdata=data.frame(mileage=x.plot.data))
+plot(used.cars.train$mileage,used.cars.train$price,pch='.',xlab="Mileage",ylab="Price")
+lines(x.plot.data,y.plot.data,col="blue")
+
+```
+
+\newpage
+## 2.5
+
+We use cross validation to select the optimal K, and find that MSE is minimized somewhere in the range of K = [400, 600]. We select K = 400 for simplicity. 
+We next plot the CV MSE as a function of the degree of k, and a KNN K = 400 model
+
+```{r question2.51,  eval=TRUE, include=TRUE, echo=FALSE, fig.height=4, fig.align='center', message=FALSE, cache=TRUE}
+
+#2.5
+#docvknn(matrix x, vector y,vector of k values, number of folds),
+kv=1:10*100
+#does cross-validation for training data (x,y).
+sink("/dev/null")
+cv1 = docvknn(matrix(used.cars.train$mileage),used.cars.train$price,kv,nfold=5)
+cv2 = docvknn(matrix(used.cars.train$mileage),used.cars.train$price,kv,nfold=5)
+cv3 = docvknn(matrix(used.cars.train$mileage),used.cars.train$price,kv,nfold=10)
+sink()
+#docvknn returns error sum of squares, want RMSE
+cv1 = sqrt(cv1/nrow(used.cars.train))
+cv2 = sqrt(cv2/nrow(used.cars.train))
+cv3 = sqrt(cv3/nrow(used.cars.train))
+rgy = range(c(cv1,cv2,cv3))
+plot(log(1/kv),cv1,type="l",col="red",ylim=rgy,lwd=2,cex.lab=2.0, xlab="log(1/k)", ylab="RMSE")
+lines(log(1/kv),cv2,col="blue",lwd=2)
+lines(log(1/kv),cv3,col="green",lwd=2)
+legend("topleft",legend=c("5-fold 1","5-fold 2","10 fold"),
+       col=c("red","blue","green"),lwd=2,cex=1.5)
+
+cv = (cv1+cv2+cv3)/3 #use average
+kbest = kv[which.min(cv)]
+# cat("the best k is: ",kbest,"\n")
+#fit kNN with best k and plot the fit.
+kfbest = kknn(price~mileage,used.cars.train,used.cars.test[order(used.cars.test$mileage),],
+              k=kbest,kernel = "rectangular")
+
+plot(used.cars.test$mileage,used.cars.test$price,pch=".")
+lines(used.cars.test[order(used.cars.test$mileage),]$mileage,kfbest$fitted,col="red",lwd=2,cex.lab=2)
+
+```
+
+We use cross validation to select the complexity parameter for CART, and find that MSE is minimized at alpha = 0.00030, or where the size of our tree is 131. We next plot the relative error as a function of alpha. Our OOS RMSE is minimized at 133.57 when using the KNN model; we select the KNN model.
+
+```{r question2.52, echo=FALSE, eval=TRUE, include=TRUE, fig.height=4, fig.align='center', message=FALSE, cache=TRUE}
+
+#Now, for the trees
+df2=used.cars.train[,c(1,4), with = FALSE] # pick off dis,lstat,medv
+#print(names(df2))
+
+# create a big tree
+big.tree = rpart(price~., data=df2, 
+             control=rpart.control(minsplit=5,  
+                                   cp=0.0001,
+                                   xval=10)   
+)
+nbig = length(unique(big.tree$where))
+#cat('size of big tree: ',nbig,'\n')
+
+cptable = big.tree$cptable
+bestcp = cptable[ which.min(cptable[,"xerror"]), "CP" ]   # this is the optimal cp parameter
+
+plotcp(big.tree) # plot results
+best.tree = prune(big.tree,cp=bestcp)
+
+tree.fit=predict(best.tree)
+plot(used.cars.test$mileage,used.cars.test$price,pch=".")
+lines(x.plot.data,y.plot.data,col="blue")
+lines(used.cars.test[order(used.cars.test$mileage),]$mileage,kfbest$fitted,col="red",lwd=2,cex.lab=2)
+lines(used.cars.train$mileage[order(used.cars.train$mileage)],tree.fit[order(used.cars.train$mileage)],col="green")
+
+#I would use the Knn I think - and it has the best MSE!
+
+#knn RMSE
+#sqrt(sum((used.cars.test[order(used.cars.test$mileage),]$price-kfbest$fitted)^2)/nrow(used.cars.test))
+#poly RMSE
+poly.predict=predict(poly.lm,newdata=used.cars.test)
+#sqrt(sum((used.cars.test$price-poly.predict)^2)/nrow(used.cars.test))
+#tree RMSE
+new.fit=predict(best.tree,newdata=used.cars.test)
+#sqrt(sum((used.cars.test$price-new.fit)^2)/nrow(used.cars.test))
+
+```
+
+We would use the knn model. They all have nearly identical RMSE in the test sample (by our most recent calculations - KNN was 9448, polynomial was 9459, and the tree was 9560), but we would think that knn would be best able to capture the general trends in the data - this relationship is one that would not be linear and might have some oddities a polynomial function might have trouble accounting for (e.g. consumers might irrationally value a car with <100000 miles more than a car with 100001 on it). That said, it is pretty much a tossup between knn and the tree model. The RMSE of the knn model was 9447.623.
+
+\newpage
+## 2.6
+
+We now include both year and mileage as features. For KNN we find that our optimal K is now 80 and our optimal complexity parameter for CART is now 0.00019. In both cases, our model opts for a "smaller" fit - in the case of knn our k value is much smaller, likely due in large part to the increased amount of data for a given point and better ability to find a similar point. At the same time, the best fit tree is much smaller for similar reasons.
+
+We next plot the relative error as a function of alpha. Naturally our model performs better when we add more explanatory features; our MSE is now 7045. For comparison, we show the correlation between the true y and the yhats from the linear, KNN, and tree based model. The size of the tree is 131. Ultimately, both of these models are significantly more accurate with the addition of mileage.
+
+```{r question2.6, echo=FALSE, eval=TRUE, include=TRUE, fig.height=4, fig.align='center', message=FALSE, cache=TRUE}
+
+#first, knn
+x = cbind(used.cars.train$mileage,used.cars.train$year)
+colnames(x) = c("mileage","year")
+y = used.cars.train$price
+mmsc=function(x) {return((x-min(x))/(max(x)-min(x)))}
+xs = apply(x,2,mmsc) #apply scaling function to each column of x
+#plot y vs each x
+#par(mfrow=c(1,2)) #two plot frames
+#plot(x[,1],y,xlab="mileage",ylab="price")
+#plot(x[,2],y,xlab="year",ylab="price")
+#run cross val once
+#par(mfrow=c(1,1))
+set.seed(99)
+kv = 1:12*10 #k values to try
+n = length(y)
+sink("/dev/null")
+cvtemp = docvknn(xs,y,kv,nfold=10)
+cvtemp = sqrt(cvtemp/n) #docvknn returns sum of squares
+sink()
+plot(kv,cvtemp)
+
+#refit using all the data and k=80
+ddf = data.frame(y,xs)
+near5 = kknn(y~.,ddf,ddf,k=80,kernel = "rectangular")
+lmf = lm(y~.,ddf)
+fmat = cbind(y,near5$fitted,lmf$fitted)
+colnames(fmat)=c("y","kNN5","linear")
+pairs(fmat)
+print(cor(fmat))
+
+#knn RMSE
+test.x=data.frame(used.cars.test[,c(4,5), with = FALSE])
+names(test.x)=c("mileage","year")
+adjusted.test.x=data.frame(apply(test.x,2,mmsc))
+kfbest=kknn(y~.,ddf,adjusted.test.x,k=80,kernel = "rectangular")
+sqrt(sum((used.cars.test$price-kfbest$fitted)^2)/nrow(used.cars.test))
+
+#now trees
+df2=used.cars.train[,c(1,4,5), with = FALSE] # pick off columns
+#print(names(df2))
+
+# create a big tree
+big.tree = rpart(price~., data=df2, 
+                 control=rpart.control(minsplit=5,  
+                                       cp=0.0001,
+                                       xval=10)   
+)
+nbig = length(unique(big.tree$where))
+#cat('size of big tree: ',nbig,'\n')
+
+cptable = big.tree$cptable
+bestcp = cptable[ which.min(cptable[,"xerror"]), "CP" ]   # this is the optimal cp parameter
+
+plotcp(big.tree) # plot results
+best.tree = prune(big.tree,cp=bestcp)
+# rpart.plot(best.tree)
+#tree RMSE
+new.fit=predict(best.tree,newdata=used.cars.test)
+#sqrt(sum((used.cars.test$price-new.fit)^2)/nrow(used.cars.test))
+#yes, performs better and also both ks go down
+
+```
+
+\newpage
+## 2.7
+
+We now use all availalbe features in a CART to predict price. We report a MSE of 4466, much better than any of our previous models. Here the added amount of data and variables allowed us to have a significantly more accurate prediction of price.
+
+```{r question2.7, echo=FALSE, eval=TRUE, include=TRUE, fig.height=4, fig.align='center', message=FALSE, cache=TRUE}
+
+#2.7
+big.tree = rpart(price~., data=used.cars.train, 
+                 control=rpart.control(minsplit=5,  
+                                       cp=0.0001,
+                                       xval=10)   
+)
+nbig = length(unique(big.tree$where))
+#cat('size of big tree: ',nbig,'\n')
+
+cptable = big.tree$cptable
+bestcp = cptable[ which.min(cptable[,"xerror"]), "CP" ]   # this is the optimal cp parameter
+
+plotcp(big.tree,ylim=c(0.05,.08)) # plot results
+best.tree = prune(big.tree,cp=bestcp)
+#rpart.plot(best.tree)
+
+new.fit=predict(best.tree,newdata=used.cars.test)
+#sqrt(sum((used.cars.test$price-new.fit)^2))/nrow(used.cars.test)
+
+```
+
+## Bonus
+
+In order to find the most relevant variables we look towards the complexity parameter output found in the tree output. We note the tabulated results indicate how much each split contributes to improving the 'fit' of the tree model. These are the most important variables. We could now isolate these splits and their respective variables. Then, we could use these variables as the inputs to a more simple, interactive linear model. Because these variables are the most important explanatory features in the dataset, our interacted linear model *should now predict better than a naive linear or polynomial model. 
+
+
+\newpage
+

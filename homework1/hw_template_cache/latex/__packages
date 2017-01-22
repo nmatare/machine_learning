@@ -1,8 +1,0 @@
-base
-ggplot2
-gridExtra
-MASS
-kknn
-boot
-rpart
-data.table
