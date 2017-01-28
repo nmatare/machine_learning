@@ -66,6 +66,12 @@
 
 	trainX <- all.data[!is.na(count), !('count'), with = FALSE]
 	trainY <- all.data[!is.na(count), ('count'), with = FALSE]
+	
+	trainOOS.idx <- sample(1:NROW(trainX), NROW(trainX) * 0.33) # sample 1/3 of the training data in order to get trueOOS estimate
+	trainX.fit <- trainX[-trainOOS.idx] #use these for true testing and evaluating
+	trainY.fit <- trainY[-trainOOS.idx]
+	trainX.OOS <- trainX[trainOOS.idx]
+	trainY.OOS <- trainY[trainOOS.idx]
 
 	testX <- Matrix(as.matrix(all.data[is.na(count), !('count'), with = FALSE]))
 	testY <- NULL
@@ -74,23 +80,42 @@
 	# Build Models
 	########
 
-	LASSO <- cv.gamlr(trainX, trainY, family = 'gaussian', verb = TRUE, nfold = 10)
-	sqrt(min(LASSO$cvm)) # RMSE 
+	LASSO <- cv.gamlr(trainX.fit, trainY.fit, family = 'gaussian', verb = TRUE, nfold = 10)
+	yhat.LASSO <- predict(LASSO, trainX.OOS)
 
-	XGBST <- xgboost(data = as.matrix(trainX), label = as.vector(unlist(trainY)), max_depth = 2, nthread = detectCores() - 1, nrounds = 100, verbose = 1, objective = "reg:linear")
+	LASSO.insample.RMSE <- sqrt(min(LASSO$cvm)) # in-sample CV RMSE
+	LASSO.outsample.RMSE <- sqrt(mean((as.matrix(trainY.OOS) - yhat.LASSO) ^ 2)) # OOS RMSE
 
-	RF <- ranger(count ~., 	data = cbind.data.frame(trainY, trainX), probability = FALSE, classification = FALSE, num.trees = 5000, write.forest = TRUE, 
+	depths <- c(2, 3, 4, 5, 6); results <- list()
+	for(depth in depths){
+
+		XGBST <- xgboost(	data = as.matrix(trainX.fit), label = as.vector(unlist(trainY.fit)), max_depth = depth, 
+							nthread = detectCores() - 1, nrounds = 10000, verbose = 0, objective = "reg:linear")
+
+		yhat.XGBST <- predict(XGBST, as.matrix(trainX.OOS))
+		XGBST.outsample.RSME <- sqrt(mean((as.matrix(trainY.OOS) - yhat.XGBST) ^ 2)) # OOS RMSE
+		results[[depth]] <- XGBST.outsample.RSME
+		print(paste("Finished depth:", depth, "OOS MSE:", round(XGBST.outsample.RSME)))
+	}
+		# best model is found at RMSE 50 at nrounds 10000 depth 5
+
+
+	RF <- ranger(count ~., 	data = cbind.data.frame(trainY.fit, trainX.fit), probability = FALSE, 
+							classification = FALSE, num.trees = 10000, write.forest = TRUE, 
 							num.threads = detectCores() - 1, importance = 'impurity', verbose = TRUE
 				)
 
-	sqrt(RF$prediction.error) # RMSE
+	yhat.RF <- predict(RF, trainX.OOS)$predictions 
+	RF.insample.RMSE <- sqrt(RF$prediction.error) # in-sample (OOB) RMSE
+	RF.outsample.RMSE <- sqrt(mean((as.matrix(trainY.OOS) - yhat.RF) ^ 2)) # OOS RMSE
 
-	BART <- bart(	x.train = as.data.frame(trainX), 
-					y.train = as.double(unlist(trainY)), 
-					x.test = as.data.frame(trainX),
-					ntree = 500, ndpost = 200, nskip = 100, verbose = TRUE
+	BART <- bart(	x.train = as.data.frame(trainX.fit), 
+					y.train = as.double(unlist(trainY.fit)), 
+					x.test = as.data.frame(trainX.OOS),
+					ntree = 500, ndpost = 500, nskip = 250, verbose = TRUE, printevery = 10
 				)
 
+	# 70.7 BART
 	sqrt(mean((trainY - BART$yhat.test.mean) ^ 2)) # BART$sigest
 
 ########
