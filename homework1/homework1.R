@@ -7,17 +7,16 @@
 # Load Config Files
 ########
 
-	library(ggplot2)
-	require(gridExtra)
-	library(MASS)
-	library(kknn)
-	library(boot)
-	library(rpart)
-	library(data.table)
+	options("width" = 250)
+	options(scipen = 999)
+	options(digits = 3)
+
+	library(ggplot2); require(gridExtra); library(MASS); library(kknn)
+	library(boot); library(rpart); library(data.table)
 
 	UC <- as.data.table(read.csv(url("https://raw.githubusercontent.com/ChicagoBoothML/DATA___UsedCars/master/UsedCars.csv")))
 	UC[,UID := .I];	setkey(UC, UID) # create UID column
-	set.seed(1) # the devils seed
+	set.seed(666) # the devils seed
 
 	# Helper functions from TA
 	mse <- function(y,yhat) {return(sum((y - yhat) ^ 2))}
