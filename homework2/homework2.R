@@ -17,6 +17,8 @@
 
 	set.seed(666) # the devils seed
 
+	# install.packages("xgboost", dependencies = TRUE, INSTALL_opts = c('--no-lock'))
+
 	xnaref <- function(x){
 					if(is.factor(x))
 						if(!is.na(levels(x)[1]))
@@ -32,6 +34,12 @@
 					return(as.data.frame(DF))
 	}
 
+	lossMR <- function(y, phat, thr = 0.5){
+					if(is.factor(y)) y <- as.numeric(y) - 1
+  					yhat <- ifelse(phat > thr, 1, 0)
+  					return(1 - mean(yhat == y))
+	}
+
 ########
 # Question 1
 ########
@@ -43,16 +51,16 @@
 	bike.train <- as.data.table(read.csv(url("https://raw.githubusercontent.com/ChicagoBoothML/ML2016/master/hw02/Bike_train.csv")))
 	bike.test <- as.data.table(read.csv(url("https://raw.githubusercontent.com/ChicagoBoothML/ML2016/master/hw02/Bike_test.csv")))
 	
-	bike.train[ ,UID := .I]; setkey(bike.train, UID) # create UID column
-	bike.test[ ,UID := .I]; setkey(bike.test, UID) # create UID column
-	bike.test[,count := NA] # these are to be predicted
+	bike.train[  ,UID   := .I]; setkey(bike.train, UID) # create UID column
+	bike.test [  ,UID   := .I]; setkey(bike.test, UID) # create UID column
+	bike.test [  ,count := NA] # these are to be predicted
 
 	data <- rbind(bike.train, bike.test)	
 
 	data[ ,':='( # factor categorical vars
 			year = naref(factor(year)),
 			month = naref(factor(month)),
-			daylabel = naref(factor(daylabel)),
+			# daylabel = naref(factor(daylabel)), # toggle for continuous
 			day = naref(factor(day)),
 			hour = naref(factor(hour)),
 			season = naref(factor(season)),
@@ -61,17 +69,17 @@
 			weather = naref(factor(weather))
 	)]
 
-	dummies <- model.matrix( ~ year + month + day + hour + season + holiday + workingday + weather + daylabel, data = data)[,-1]
+	dummies  <- model.matrix( ~ year + month + day + hour + season + holiday + workingday + weather + daylabel, data = data)[,-1]
 	all.data <- cbind(data[ ,c("count", "temp", "atemp", "humidity", "windspeed"), with = FALSE], dummies)
 
 	trainX <- all.data[!is.na(count), !('count'), with = FALSE]
 	trainY <- all.data[!is.na(count), ('count'), with = FALSE]
 	
 	trainOOS.idx <- sample(1:NROW(trainX), NROW(trainX) * 0.33) # sample 1/3 of the training data in order to get trueOOS estimate
-	trainX.fit <- trainX[-trainOOS.idx] #use these for true testing and evaluating
-	trainY.fit <- trainY[-trainOOS.idx]
-	trainX.OOS <- trainX[trainOOS.idx]
-	trainY.OOS <- trainY[trainOOS.idx]
+	trainX.fit <- trainX[-trainOOS.idx,] #use these for true testing and evaluating
+	trainY.fit <- trainY[-trainOOS.idx,]
+	trainX.OOS <- trainX[ trainOOS.idx,]
+	trainY.OOS <- trainY[ trainOOS.idx,]
 
 	testX <- Matrix(as.matrix(all.data[is.na(count), !('count'), with = FALSE]))
 	testY <- NULL
@@ -80,43 +88,51 @@
 	# Build Models
 	########
 
-	LASSO <- cv.gamlr(trainX.fit, trainY.fit, family = 'gaussian', verb = TRUE, nfold = 10)
-	yhat.LASSO <- predict(LASSO, trainX.OOS)
+	# LASSO <- cv.gamlr(trainX.fit, trainY.fit, family = 'gaussian', verb = TRUE, nfold = 10)
+	# yhat.LASSO <- predict(LASSO, trainX.OOS)
 
-	LASSO.insample.RMSE <- sqrt(min(LASSO$cvm)) # in-sample CV RMSE
-	LASSO.outsample.RMSE <- sqrt(mean((as.matrix(trainY.OOS) - yhat.LASSO) ^ 2)) # OOS RMSE
+	# LASSO.insample.RMSE <- sqrt(min(LASSO$cvm)) # in-sample CV RMSE
+	# LASSO.outsample.RMSE <- sqrt(mean((as.matrix(trainY.OOS) - yhat.LASSO) ^ 2)) # OOS RMSE
 
-	depths <- c(2, 3, 4, 5, 6); results <- list()
-	for(depth in depths){
+	params <- list(gamma = 0.02, max_depth = 20, nrounds = 2500, booster = "gbtree", objective = "reg:linear") # patrick parameters
+	# params <- list(max_depth = 4, nrounds = 10000, booster = "dart", objective = "reg:linear") # nathan parameters 
 
-		XGBST <- xgboost(	data = as.matrix(trainX.fit), label = as.vector(unlist(trainY.fit)), max_depth = depth, 
-							nthread = detectCores() - 1, nrounds = 10000, verbose = 0, objective = "reg:linear")
+	# CV Test Results
+	# @ patrick data = patrick params: 57.6 nathan params: 
+	# @ nathan data = patrick params: ___ nathan params: 
 
-		yhat.XGBST <- predict(XGBST, as.matrix(trainX.OOS))
-		XGBST.outsample.RSME <- sqrt(mean((as.matrix(trainY.OOS) - yhat.XGBST) ^ 2)) # OOS RMSE
-		results[[depth]] <- XGBST.outsample.RSME
-		print(paste("Finished depth:", depth, "OOS MSE:", round(XGBST.outsample.RSME)))
-	}
-		# best model is found at RMSE 50 at nrounds 10000 depth 5
+	#left is patrick data, right is nathan data
 
+	XGBST.cv <- xgb.cv(params = params, data = as.matrix(trainX.fit), label = as.vector(unlist(trainY.fit)),
+                       nthread = detectCores() - 1, verbose = 0, nfold = 5, nrounds = 100)
 
-	RF <- ranger(count ~., 	data = cbind.data.frame(trainY.fit, trainX.fit), probability = FALSE, 
-							classification = FALSE, num.trees = 10000, write.forest = TRUE, 
-							num.threads = detectCores() - 1, importance = 'impurity', verbose = TRUE
-				)
+	XGBST <- xgboost(params = params, data = as.matrix(trainX.fit), label = as.vector(unlist(trainY.fit)),
+					 nthread = detectCores() - 1, verbose = 0, nrounds = 5000)
 
-	yhat.RF <- predict(RF, trainX.OOS)$predictions 
-	RF.insample.RMSE <- sqrt(RF$prediction.error) # in-sample (OOB) RMSE
-	RF.outsample.RMSE <- sqrt(mean((as.matrix(trainY.OOS) - yhat.RF) ^ 2)) # OOS RMSE
+	yhat.XGBST <- predict(XGBST, as.matrix(trainX.OOS))
+	XGBST.outsample.RSME <- sqrt(mean((as.matrix(trainY.OOS) - yhat.XGBST) ^ 2)) # OOS RMSE
 
-	BART <- bart(	x.train = as.data.frame(trainX.fit), 
-					y.train = as.double(unlist(trainY.fit)), 
-					x.test = as.data.frame(trainX.OOS),
-					ntree = 500, ndpost = 500, nskip = 250, verbose = TRUE, printevery = 10
-				)
+	# OOS Test results
+	# @ patrick data = patrik params: nathan params: 
+	# @ nathan data = patrik params: nathan params: 
 
-	# 70.7 BART
-	sqrt(mean((trainY - BART$yhat.test.mean) ^ 2)) # BART$sigest
+	# RF <- ranger(count ~., 	data = cbind.data.frame(trainY.fit, trainX.fit), probability = FALSE, 
+	# 						classification = FALSE, num.trees = 10000, write.forest = TRUE, 
+	# 						num.threads = detectCores() - 1, importance = 'impurity', verbose = TRUE
+	# 			)
+
+	# yhat.RF <- predict(RF, trainX.OOS)$predictions 
+	# RF.insample.RMSE <- sqrt(RF$prediction.error) # in-sample (OOB) RMSE
+	# RF.outsample.RMSE <- sqrt(mean((as.matrix(trainY.OOS) - yhat.RF) ^ 2)) # OOS RMSE
+
+	# BART <- bart(	x.train = as.data.frame(trainX.fit), 
+	# 				y.train = as.double(unlist(trainY.fit)), 
+	# 				x.test = as.data.frame(trainX.OOS),
+	# 				ntree = 500, ndpost = 500, nskip = 250, verbose = TRUE, printevery = 10
+	# 			)
+
+	# # 70.7 BART
+	# sqrt(mean((trainY - BART$yhat.test.mean) ^ 2)) # BART$sigest
 
 ########
 # Question 2
@@ -129,20 +145,69 @@
 	movies.train <- as.data.table(read.csv(url("https://raw.githubusercontent.com/ChicagoBoothML/ML2016/master/hw02/MovieReview_train.csv")))
 	movies.test <- as.data.table(read.csv(url("https://raw.githubusercontent.com/ChicagoBoothML/ML2016/master/hw02/MovieReview_test.csv")))
 	
-	movies.train[,UID := .I]; setkey(movies.train, UID) # create UID column
-	movies.test[,UID := .I]; setkey(movies.test, UID) # create UID column
 	movies.test[,sentiment := NA] # these are to be predicted
+	all.data <- rbind(movies.train, movies.test)
+	all.data <- as.data.table(apply(all.data, 2, as.double))
 
-	all.data <- rbind(movies.train, movies.test)	
+	binCols <- function(target, bins, data = all.data){
+					binned.col <- cut(as.matrix(data[ ,target, with = FALSE]), bins, include.lowest = TRUE, labels = paste(target, ".bin.", 1:bins, sep = ""))
+					return(binned.col)
+	}
 
-	trainX <- Matrix(as.matrix(all.data[!is.na(sentiment), !('sentiment'), with = FALSE]))
-	trainY <- all.data[!is.na(sentiment), ('sentiment'), with = FALSE]
+	all.data <- cbind(all.data, lengthAsbin = binCols(target = 'length', bins = 30))
+	all.data[ ,length := NULL]
 
-	testX <- Matrix(as.matrix(all.data[is.na(sentiment), !('sentiment'), with = FALSE]))
+	trainX <- all.data[!is.na(sentiment), !('sentiment'), with = FALSE]
+	trainY <- all.data[!is.na(sentiment), ('sentiment'),  with = FALSE]
+
+	trainOOS.idx <- sample(1:NROW(trainX), NROW(trainX) * 0.33) # sample 1/3 of the training data in order to get trueOOS estimate
+	trainX.fit <- trainX[-trainOOS.idx, ] #use these for true testing and evaluating
+	trainY.fit <- trainY[-trainOOS.idx, ]
+	trainX.OOS <- trainX[trainOOS.idx, ]
+	trainY.OOS <- trainY[trainOOS.idx, ]
+
+	toDouble <- function(data){ #turns data into double
+					ind.num <- names(which(sapply(data, is.numeric)))
+					ind.factor <- names(which(!sapply(data, is.numeric)))
+
+					data.double <- apply(data[, ind.num, with = FALSE], 2, as.double)
+					dummies <- model.matrix(~ lengthAsbin, naref(data[, ind.factor, with = FALSE]))[ ,-1] # currently not adaptive
+
+					data.out <- cbind(data.double, dummies)
+					return(data.out)
+	}
+
+	trainX.fit <- toDouble(trainX.fit)
+	trainY.fit  <- apply(trainY.fit , 2, as.double)
+	trainX.OOS <- toDouble(trainX.OOS)
+
+	testX <- all.data[is.na(sentiment), !('sentiment'), with = FALSE]
 	testY <- NULL
 
 	########
 	# Build Models 
 	########
 
-	## TO DO
+	LASSO <- cv.gamlr(trainX.fit, trainY.fit, family = 'binomial', gamma = 0, verb = TRUE, nfold = 10)
+	prob.LASSO <- predict(LASSO, trainX.OOS, type = 'response') # 20.1 % w/ binning length 17.2% - 21% miss classification; depends on randomness from CV, and random test sample
+	loss.LASSO <- lossMR(trainY.OOS, prob.LASSO); print(loss.LASSO)
+
+	RF <- ranger(sentiment ~., 	data = cbind.data.frame(sentiment = factor(trainY.fit), trainX.fit), probability = TRUE, classification = TRUE, 
+							num.trees = 50000, write.forest = TRUE, num.threads = detectCores() - 1, verbose = TRUE)
+
+	prob.RF <- ranger:::predict.ranger(RF, trainX.OOS, type = 'response')$predictions[,'1']
+	loss.RF <- lossMR(trainY.OOS, prob.RF); print(loss.RF) # 19.6 %
+
+	# BART <- bart(x.train = as.data.frame(trainX.fit), y.train = as.double(unlist(trainY.fit)), 
+	# 			 x.test = as.data.frame(trainX.OOS), ntree = 100, ndpost = 500, nskip = 250, verbose = TRUE, printevery = 10)
+
+	# params <- list(max_depth = 4, nrounds = 2500, booster = "gbtree", objective = "binary:logistic") # 54.2
+	# XGBST.cv <- xgb.cv(params = params, data = as.matrix(trainX.fit), label = as.vector(unlist(trainY.fit)),
+ #                       nthread = detectCores() - 1, verbose = 0, nfold = 5)
+
+	# # load best parameters into xgboost
+	# XGBST <- xgboost(params = params, data = as.matrix(trainX.fit), label = as.vector(unlist(trainY.fit)),
+	# 				 nthread = detectCores() - 1, verbose = 1, nrounds = 500)
+
+	# yhat.XGBST <- predict(XGBST, as.matrix(trainX.OOS), type = 'prob')
+	# loss.XGBST <- lossMR(trainY.OOS, yhat.XGBST)
