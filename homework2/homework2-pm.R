@@ -410,7 +410,7 @@ dt.movies.train.without.sent=dt.movies.train
 dt.movies.train.without.sent$sentiment=0
 dt.movies.test.without.sent=dt.movies.test
 dt.movies.test.without.sent$sentiment=0
-temp=cv.gamlr(dt.movies.train.without.sent,dt.movies.train$sentiment)
+temp=cv.gamlr(dt.movies.train.without.sent,dt.movies.train$sentiment, family = 'binomial')
 plot(temp)
 coef(temp)
 newpredict=predict(temp,newdata=dt.movies.test)

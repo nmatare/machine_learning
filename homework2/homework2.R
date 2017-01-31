@@ -69,17 +69,17 @@
 			weather = naref(factor(weather))
 	)]
 
-	dummies  <- model.matrix( ~ year + month + day + hour + season + holiday + workingday + weather + daylabel, data = data)[,-1]
-	all.data <- cbind(data[ ,c("count", "temp", "atemp", "humidity", "windspeed"), with = FALSE], dummies)
+	dummies  <- model.matrix( ~ year + month + day + hour + season + holiday + workingday + weather, data = data)[,-1]
+	all.data <- cbind(data[ ,c("count", "temp", "atemp", "humidity", "windspeed", "daylabel"), with = FALSE], dummies)
 
 	trainX <- all.data[!is.na(count), !('count'), with = FALSE]
 	trainY <- all.data[!is.na(count), ('count'), with = FALSE]
 	
 	trainOOS.idx <- sample(1:NROW(trainX), NROW(trainX) * 0.33) # sample 1/3 of the training data in order to get trueOOS estimate
-	trainX.fit <- trainX[-trainOOS.idx,] #use these for true testing and evaluating
-	trainY.fit <- trainY[-trainOOS.idx,]
-	trainX.OOS <- trainX[ trainOOS.idx,]
-	trainY.OOS <- trainY[ trainOOS.idx,]
+	trainX.fit <- trainX[-trainOOS.idx, ] #use these for true testing and evaluating
+	trainY.fit <- trainY[-trainOOS.idx, ]
+	trainX.OOS <- trainX[ trainOOS.idx, ]
+	trainY.OOS <- trainY[ trainOOS.idx, ]
 
 	testX <- Matrix(as.matrix(all.data[is.na(count), !('count'), with = FALSE]))
 	testY <- NULL
@@ -94,12 +94,12 @@
 	# LASSO.insample.RMSE <- sqrt(min(LASSO$cvm)) # in-sample CV RMSE
 	# LASSO.outsample.RMSE <- sqrt(mean((as.matrix(trainY.OOS) - yhat.LASSO) ^ 2)) # OOS RMSE
 
-	params <- list(gamma = 0.02, max_depth = 20, nrounds = 2500, booster = "gbtree", objective = "reg:linear") # patrick parameters
-	# params <- list(max_depth = 4, nrounds = 10000, booster = "dart", objective = "reg:linear") # nathan parameters 
+	params <- list(gamma = 0.02, max_depth = 20, booster = "gbtree", objective = "reg:linear") # patrick parameters
+	# params <- list(max_depth = 4, nrounds = 2500, booster = "dart", objective = "reg:linear") # nathan parameters 
 
 	# CV Test Results
 	# @ patrick data = patrick params: 57.6 nathan params: 
-	# @ nathan data = patrick params: ___ nathan params: 
+	# @ nathan data = patrick params: 53.6 nathan params: 
 
 	#left is patrick data, right is nathan data
 
@@ -107,14 +107,14 @@
                        nthread = detectCores() - 1, verbose = 0, nfold = 5, nrounds = 100)
 
 	XGBST <- xgboost(params = params, data = as.matrix(trainX.fit), label = as.vector(unlist(trainY.fit)),
-					 nthread = detectCores() - 1, verbose = 0, nrounds = 5000)
+					 nthread = detectCores() - 1, verbose = 1, nrounds = 500)
 
 	yhat.XGBST <- predict(XGBST, as.matrix(trainX.OOS))
 	XGBST.outsample.RSME <- sqrt(mean((as.matrix(trainY.OOS) - yhat.XGBST) ^ 2)) # OOS RMSE
 
 	# OOS Test results
-	# @ patrick data = patrik params: nathan params: 
-	# @ nathan data = patrik params: nathan params: 
+	# @ patrick data = patrik params: ___ nathan params: 
+	# @ nathan data = patrik params: ___ nathan params: 
 
 	# RF <- ranger(count ~., 	data = cbind.data.frame(trainY.fit, trainX.fit), probability = FALSE, 
 	# 						classification = FALSE, num.trees = 10000, write.forest = TRUE, 
@@ -193,7 +193,7 @@
 	loss.LASSO <- lossMR(trainY.OOS, prob.LASSO); print(loss.LASSO)
 
 	RF <- ranger(sentiment ~., 	data = cbind.data.frame(sentiment = factor(trainY.fit), trainX.fit), probability = TRUE, classification = TRUE, 
-							num.trees = 50000, write.forest = TRUE, num.threads = detectCores() - 1, verbose = TRUE)
+								num.trees = 50000, write.forest = TRUE, num.threads = detectCores() - 1, verbose = TRUE)
 
 	prob.RF <- ranger:::predict.ranger(RF, trainX.OOS, type = 'response')$predictions[,'1']
 	loss.RF <- lossMR(trainY.OOS, prob.RF); print(loss.RF) # 19.6 %
