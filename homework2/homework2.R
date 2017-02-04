@@ -99,18 +99,9 @@
 	# params <- list(max_depth = 4, booster = "dart", objective = "reg:linear") # nathan parameters 
 	params <- list(gamma = 0.08, max_depth = 8, booster = "gbtree", objective = "reg:linear") # 41.8
 
-	# CV Test Results
-	# @ patrick data = patrick params: 57.6 nathan params: 
-	# @ nathan data = patrick params: 53.6 nathan params: 
-	# @ patrick data = patrick params #2 41.8 ! best parameters // 39.5
-
-	#left is patrick data, right is nathan data
-
 	XGBST.cv <- xgb.cv(params = params, data = as.matrix(apply(trainX, 2, as.numeric)), 
 						label = as.vector(unlist(trainY)),
                        nthread = detectCores() - 1, verbose = 1, nfold = 10, nrounds = 2500)
-
-	# odd numeric, gets test MSE 
 
 	XGBST <- xgboost(params = params, data = as.matrix(trainX), label = as.vector(unlist(trainY)),
 					 nthread = detectCores() - 1, verbose = 1, nrounds = 2500)
@@ -121,15 +112,6 @@
 	yhat <- predict(XGBST, as.matrix(testX))
 	predictions <- data.frame(count = ifelse(yhat < 0, 0, yhat))
 	write.csv(predictions, file = 'hw2-1-matare.csv', row.names = FALSE)
-
-  	fboost <- gbm(count ~., data = cbind.data.frame(trainY.fit, trainX.fit), distribution = "gaussian", n.trees = 2500, interaction.depth = 20, shrinkage = 0.8)
-  
-  	yhat.GBM <- predict(fboost, newdata = trainX.OOS, n.trees = 2500)
-  	XGBST.outsample.RSME <- sqrt(mean((as.matrix(trainY.OOS) - yhat.GBM) ^ 2)); print(XGBST.outsample.RSME) # OOS RMSE
-
-	# OOS Test results
-	# @ patrick data = patrik params: ___ nathan params: 
-	# @ nathan data = patrik params: ___ nathan params: 
 
 	# RF <- ranger(count ~., 	data = cbind.data.frame(trainY.fit, trainX.fit), probability = FALSE, 
 	# 						classification = FALSE, num.trees = 10000, write.forest = TRUE, 
@@ -212,11 +194,11 @@
 	prob.LASSO <- predict(LASSO, trainX.OOS, type = 'response') # 20.1 % w/ binning length 15.8% - 21% miss classification; depends on randomness from CV, and random test sample
 	loss.LASSO <- lossMR(trainY.OOS, prob.LASSO); print(loss.LASSO)
 
-	RF <- ranger(sentiment ~., 	data = cbind.data.frame(sentiment = factor(trainY.fit), trainX.fit), probability = TRUE, classification = TRUE, 
-								num.trees = 10000, write.forest = TRUE, num.threads = detectCores() - 1, verbose = TRUE)
+	# RF <- ranger(sentiment ~., 	data = cbind.data.frame(sentiment = factor(trainY.fit), trainX.fit), probability = TRUE, classification = TRUE, 
+	# 							num.trees = 10000, write.forest = TRUE, num.threads = detectCores() - 1, verbose = TRUE)
 
-	prob.RF <- ranger:::predict.ranger(RF, trainX.OOS, type = 'response')$predictions[,'1']
-	loss.RF <- lossMR(trainY.OOS, prob.RF); print(loss.RF) # 19.6 %
+	# prob.RF <- ranger:::predict.ranger(RF, trainX.OOS, type = 'response')$predictions[,'1']
+	# loss.RF <- lossMR(trainY.OOS, prob.RF); print(loss.RF) # 19.6 %
 
 	LASSO <- cv.gamlr(trainX, trainY, family = 'binomial', gamma = 0, verb = TRUE, nfold = 10)
 	phat <- predict(LASSO, as.matrix(testX), type = 'response')
