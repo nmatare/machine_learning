@@ -61,8 +61,8 @@
 			year = naref(factor(year)),
 			month = naref(factor(month)),
 			# daylabel = naref(factor(daylabel)), # toggle for continuous
-			day = naref(factor(day)),
-			hour = naref(factor(hour)),
+			# day = naref(factor(day)),
+			# hour = naref(factor(hour)),
 			season = naref(factor(season)),
 			holiday = naref(factor(holiday)),
 			workingday = naref(factor(workingday)),
@@ -74,8 +74,9 @@
 
 	trainX <- all.data[!is.na(count), !('count'), with = FALSE]
 	trainY <- all.data[!is.na(count), ('count'), with = FALSE]
+	testX <- all.data[is.na(count), !('count'), with = FALSE]
 	
-	trainOOS.idx <- sample(1:NROW(trainX), NROW(trainX) * 0.33) # sample 1/3 of the training data in order to get trueOOS estimate
+	trainOOS.idx <- sample(1:NROW(trainX), NROW(trainX) * 0.10) # sample 1/3 of the training data in order to get trueOOS estimate
 	trainX.fit <- trainX[-trainOOS.idx, ] #use these for true testing and evaluating
 	trainY.fit <- trainY[-trainOOS.idx, ]
 	trainX.OOS <- trainX[ trainOOS.idx, ]
@@ -94,23 +95,37 @@
 	# LASSO.insample.RMSE <- sqrt(min(LASSO$cvm)) # in-sample CV RMSE
 	# LASSO.outsample.RMSE <- sqrt(mean((as.matrix(trainY.OOS) - yhat.LASSO) ^ 2)) # OOS RMSE
 
-	params <- list(gamma = 0.02, max_depth = 20, booster = "gbtree", objective = "reg:linear") # patrick parameters
-	# params <- list(max_depth = 4, nrounds = 2500, booster = "dart", objective = "reg:linear") # nathan parameters 
+	# params <- list(gamma = 0.02, max_depth = 20, booster = "gbtree", objective = "reg:linear") # patrick parameters
+	# params <- list(max_depth = 4, booster = "dart", objective = "reg:linear") # nathan parameters 
+	params <- list(gamma = 0.08, max_depth = 8, booster = "gbtree", objective = "reg:linear") # 41.8
 
 	# CV Test Results
 	# @ patrick data = patrick params: 57.6 nathan params: 
 	# @ nathan data = patrick params: 53.6 nathan params: 
+	# @ patrick data = patrick params #2 41.8 ! best parameters // 39.5
 
 	#left is patrick data, right is nathan data
 
-	XGBST.cv <- xgb.cv(params = params, data = as.matrix(trainX.fit), label = as.vector(unlist(trainY.fit)),
-                       nthread = detectCores() - 1, verbose = 0, nfold = 5, nrounds = 100)
+	XGBST.cv <- xgb.cv(params = params, data = as.matrix(apply(trainX, 2, as.numeric)), 
+						label = as.vector(unlist(trainY)),
+                       nthread = detectCores() - 1, verbose = 1, nfold = 10, nrounds = 2500)
 
-	XGBST <- xgboost(params = params, data = as.matrix(trainX.fit), label = as.vector(unlist(trainY.fit)),
-					 nthread = detectCores() - 1, verbose = 1, nrounds = 500)
+	# odd numeric, gets test MSE 
+
+	XGBST <- xgboost(params = params, data = as.matrix(trainX), label = as.vector(unlist(trainY)),
+					 nthread = detectCores() - 1, verbose = 1, nrounds = 2500)
 
 	yhat.XGBST <- predict(XGBST, as.matrix(trainX.OOS))
-	XGBST.outsample.RSME <- sqrt(mean((as.matrix(trainY.OOS) - yhat.XGBST) ^ 2)) # OOS RMSE
+	XGBST.outsample.RSME <- sqrt(mean((as.matrix(trainY.OOS) - yhat.XGBST) ^ 2)); print(XGBST.outsample.RSME) # OOS RMSE
+
+	yhat <- predict(XGBST, as.matrix(testX))
+	predictions <- data.frame(count = ifelse(yhat < 0, 0, yhat))
+	write.csv(predictions, file = 'hw2-1-matare.csv', row.names = FALSE)
+
+  	fboost <- gbm(count ~., data = cbind.data.frame(trainY.fit, trainX.fit), distribution = "gaussian", n.trees = 2500, interaction.depth = 20, shrinkage = 0.8)
+  
+  	yhat.GBM <- predict(fboost, newdata = trainX.OOS, n.trees = 2500)
+  	XGBST.outsample.RSME <- sqrt(mean((as.matrix(trainY.OOS) - yhat.GBM) ^ 2)); print(XGBST.outsample.RSME) # OOS RMSE
 
 	# OOS Test results
 	# @ patrick data = patrik params: ___ nathan params: 
@@ -119,7 +134,7 @@
 	# RF <- ranger(count ~., 	data = cbind.data.frame(trainY.fit, trainX.fit), probability = FALSE, 
 	# 						classification = FALSE, num.trees = 10000, write.forest = TRUE, 
 	# 						num.threads = detectCores() - 1, importance = 'impurity', verbose = TRUE
-	# 			)
+	# )
 
 	# yhat.RF <- predict(RF, trainX.OOS)$predictions 
 	# RF.insample.RMSE <- sqrt(RF$prediction.error) # in-sample (OOB) RMSE
@@ -131,7 +146,7 @@
 	# 				ntree = 500, ndpost = 500, nskip = 250, verbose = TRUE, printevery = 10
 	# 			)
 
-	# # 70.7 BART
+	# 70.7 BART
 	# sqrt(mean((trainY - BART$yhat.test.mean) ^ 2)) # BART$sigest
 
 ########
@@ -154,19 +169,19 @@
 					return(binned.col)
 	}
 
-	all.data <- cbind(all.data, lengthAsbin = binCols(target = 'length', bins = 30))
+	all.data <- cbind(all.data, lengthAsbin = binCols(target = 'length', bins = 10))
 	all.data[ ,length := NULL]
 
 	trainX <- all.data[!is.na(sentiment), !('sentiment'), with = FALSE]
 	trainY <- all.data[!is.na(sentiment), ('sentiment'),  with = FALSE]
 
-	trainOOS.idx <- sample(1:NROW(trainX), NROW(trainX) * 0.33) # sample 1/3 of the training data in order to get trueOOS estimate
+	trainOOS.idx <- sample(1:NROW(trainX), NROW(trainX) * 0.20) # sample 1/3 of the training data in order to get trueOOS estimate
 	trainX.fit <- trainX[-trainOOS.idx, ] #use these for true testing and evaluating
 	trainY.fit <- trainY[-trainOOS.idx, ]
 	trainX.OOS <- trainX[trainOOS.idx, ]
 	trainY.OOS <- trainY[trainOOS.idx, ]
 
-	toDouble <- function(data){ #turns data into double
+	toDouble <- function(data){ # turns data into double
 					ind.num <- names(which(sapply(data, is.numeric)))
 					ind.factor <- names(which(!sapply(data, is.numeric)))
 
@@ -177,11 +192,16 @@
 					return(data.out)
 	}
 
+	trainX <- toDouble(trainX)
+	trainY  <- apply(trainY , 2, as.double)
+
 	trainX.fit <- toDouble(trainX.fit)
 	trainY.fit  <- apply(trainY.fit , 2, as.double)
 	trainX.OOS <- toDouble(trainX.OOS)
 
+
 	testX <- all.data[is.na(sentiment), !('sentiment'), with = FALSE]
+	testX <- toDouble(testX)
 	testY <- NULL
 
 	########
@@ -189,14 +209,21 @@
 	########
 
 	LASSO <- cv.gamlr(trainX.fit, trainY.fit, family = 'binomial', gamma = 0, verb = TRUE, nfold = 10)
-	prob.LASSO <- predict(LASSO, trainX.OOS, type = 'response') # 20.1 % w/ binning length 17.2% - 21% miss classification; depends on randomness from CV, and random test sample
+	prob.LASSO <- predict(LASSO, trainX.OOS, type = 'response') # 20.1 % w/ binning length 15.8% - 21% miss classification; depends on randomness from CV, and random test sample
 	loss.LASSO <- lossMR(trainY.OOS, prob.LASSO); print(loss.LASSO)
 
 	RF <- ranger(sentiment ~., 	data = cbind.data.frame(sentiment = factor(trainY.fit), trainX.fit), probability = TRUE, classification = TRUE, 
-								num.trees = 50000, write.forest = TRUE, num.threads = detectCores() - 1, verbose = TRUE)
+								num.trees = 10000, write.forest = TRUE, num.threads = detectCores() - 1, verbose = TRUE)
 
 	prob.RF <- ranger:::predict.ranger(RF, trainX.OOS, type = 'response')$predictions[,'1']
 	loss.RF <- lossMR(trainY.OOS, prob.RF); print(loss.RF) # 19.6 %
+
+	LASSO <- cv.gamlr(trainX, trainY, family = 'binomial', gamma = 0, verb = TRUE, nfold = 10)
+	phat <- predict(LASSO, as.matrix(testX), type = 'response')
+	yhat <- ifelse(phat > 0.5, 1, 0)
+	predictions <- data.frame(sentiment = yhat)
+
+	write.csv(predictions, file = 'hw2-2-matare.csv', row.names = FALSE)
 
 	# BART <- bart(x.train = as.data.frame(trainX.fit), y.train = as.double(unlist(trainY.fit)), 
 	# 			 x.test = as.data.frame(trainX.OOS), ntree = 100, ndpost = 500, nskip = 250, verbose = TRUE, printevery = 10)
