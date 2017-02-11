@@ -11,12 +11,14 @@
 	options(digits  = 003)
 
 	library(ggplot2); require(gridExtra); library(MASS); library(Matrix); library(parallel)
-	library(kknn); library(boot); library(rpart); library(data.table)
+	library(kknn); library(boot); library(rpart); library(data.table); library(foreach)
+	library(doMC); library(doRNG)
 	library(gamlr); library(BayesTree); library(xgboost); library(ranger)
 
 	set.seed(666) # the devils seed
 
-	dir <- "~/Documents/Education/Chicago_Booth/Classes/41204_Machine_Learning/machine_learning/midterm"
+	username <- Sys.info()[["user"]]
+	dir <- paste("/home/", username, "/projects/machine_learning/midterm/", sep = ""); setwd(dir)
 	setwd(dir)
 
 	# Helper functions from TA
@@ -63,6 +65,42 @@
 					return(1 - mean(yhat == y))
 	}
 
+	multiplot <- function(..., plotlist = NULL, file, cols=1, layout = NULL) {
+	  require(grid)
+
+	  # Make a list from the ... arguments and plotlist
+	  plots <- c(list(...), plotlist)
+
+	  numPlots = length(plots)
+
+	  # If layout is NULL, then use 'cols' to determine layout
+	  if (is.null(layout)) {
+	    # Make the panel
+	    # ncol: Number of columns of plots
+	    # nrow: Number of rows needed, calculated from # of cols
+	    layout <- matrix(seq(1, cols * ceiling(numPlots/cols)),
+	                    ncol = cols, nrow = ceiling(numPlots/cols))
+	  }
+
+	 if (numPlots==1) {
+	    print(plots[[1]])
+
+	  } else {
+	    # Set up the page
+	    grid.newpage()
+	    pushViewport(viewport(layout = grid.layout(nrow(layout), ncol(layout))))
+
+	    # Make each plot, in the correct location
+	    for (i in 1:numPlots) {
+	      # Get the i,j matrix positions of the regions that contain this subplot
+	      matchidx <- as.data.frame(which(layout == i, arr.ind = TRUE))
+
+	      print(plots[[i]], vp = viewport(layout.pos.row = matchidx$row,
+	                                      layout.pos.col = matchidx$col))
+	    }
+	  }# for plotting
+	}
+
 ########
 # Question 1
 ########
@@ -74,55 +112,199 @@
 		
 		data <- as.data.table(read.csv("PhillyCrime.csv"))
 
-		########
-		# (A)
-		########
+		############
+		#  Part 1  #
+		############
 
 		ggplot(data = data, aes(x = X, y = Y, color = Category)) + geom_point() +
 			scale_color_manual(values = c("salmon", "grey"), name = "Category", labels = c("Vandalism", "Thefts")) 
 
-		########
-		# (B)
-		########
+		############
+		#  Part 2  #
+		############
 
-		data <- data[ ,.(Category, X, Y)]
-		data[ , ':=' (
-			Category =  as.numeric(Category) - 1, # turn into binary; Vandalism = 1, Theft = 0
-			X = as.numeric(X),
-			Y = as.numeric(Y)
-		)]
+			data <- data[ ,.(Category, X, Y)]
+			data[ , ':=' (
+				Category = as.factor(Category),
+				X 		 = as.numeric(X),
+				Y 		 = as.numeric(Y)
+			)]
+
+			idx 	 <- sample(1:NROW(data), NROW(data) * 0.50) # 50% random split
+			train 	 <- data[ idx, ]
+			validate <- data[-idx, ]
+		
+			knnMR <- function(K){ # does KNN for selected K and reports missclassification rate
+							knn 	<- kknn(formula = Category ~ X + Y, train = train, test = validate, kernel = "rectangular", k = K)
+							yhat 	<- as.numeric(knn$fitted.values) - 1 # turn into binary; Vandalism = 1, Theft = 0
+							true_y  <- as.numeric(validate$Category) - 1
+							MR 		<- lossMR(true_y, yhat)
+							return(MR)
+			}
+
+			result <- as.vector(NULL)
+			for(k in 1:100) result[k] <- knnMR(k)
+
+			#######
+			# (A) #
+			#######
+
+			plotMissClass <- function(x){
+
+						p 	<-	ggplot(data = data.frame(x), aes(x = 1:NROW(x), y = x)) + 
+									xlab("K") + ylab("Misclassification Rate") +
+									geom_line(color = 'grey') + 
+									geom_point()
+						return(p)
+			}
+
+			plotMissClass(result)
+
+			########
+			# (B)
+			########
+
+			which.min(result) # optimal k
+
+			########
+			# (C)
+			########
+
+			plotBestKNN <- function(x, train, validate){
+
+							knn 	<- kknn(formula = Category ~ X + Y, train = train, test = validate, kernel = "rectangular", k = which.min(x)) # at best K
+							DT 		<- cbind(validate, pred_Category = knn$fitted.values) # add the predicted column
+
+							p <- ggplot(data = DT, aes(x = X, y = Y, color = pred_Category)) + 
+										geom_point() +
+										scale_color_manual(values = c("salmon", "grey"), name = "Predicted Category", labels = c("Vandalism", "Thefts"))
+							return(p)				
+			}
+
+			plotBestKNN(x = result, train, validate)
+
+		############
+		#  Part 3  #
+		############
+
+			registerDoMC(detectCores() - 1) # detect number of cores to split work apart
+			detectCores() # boothGrid is awesome @ 64 cores!
+
+			idxs 	 <- replicate(20, sample(1:NROW(data), NROW(data) * 0.50)) # 20, 50% random split; must create outside of foreach
+ 			results  <- foreach(i = 1:20) %dopar% { # resample data 20 times and find optimal k on validation set using devils seed
+
+ 				idx 	 <- idxs[ ,i]					
+				train 	 <- data[ idx, ]
+				validate <- data[-idx, ]
+
+				result <- as.vector(NULL)
+				for(k in 1:100) result[k] <- knnMR(k)			
+				return(list(result = result, train = train, validate = validate))
+			}
+
+			#######
+			# (A) #
+			#######
+
+			plots <- list() 
+			for(n in 1:20) plots[[n]] <- plotMissClass(results[[n]]$result)
+
+			multiplot(plotlist = plots, cols = 5)
+
+			#######
+			# (B) #
+			#######
+
+			plots <- list()
+			for(n in 1:10) plots[[n]] <- plotBestKNN(x = results[[n]]$result, results[[n]]$train, results[[n]]$validate)
+			
+			multiplot(plotlist = plots, cols = 5)
+
+			plots <- list()
+			for(n in 11:20) plots[[n]] <- plotBestKNN(x = results[[n]]$result, results[[n]]$train, results[[n]]$validate)
+
+			multiplot(plotlist = plots, cols = 5)	
+
+			#######
+			# (C) #
+			#######
+
+			t(matrix(lapply(results, function(x) which.min(x$result)), dimnames = list(1:length(results), "K"))) # best K at each N
+	
+			#######
+			# (D) #
+			#######
+
+			mean(unlist(lapply(results, function(x) which.min(x$result)))) # average min OOS error
+			sd(unlist(lapply(results, function(x) which.min(x$result))))
+
+		############
+		#  Part 4  #
+		############
+
+			idxs 	 <- replicate(20, sample(1:NROW(data), NROW(data) * 0.90)) # 20, 90% random split; must create outside of foreach
+ 			results  <- foreach(i = 1:20) %dopar% { # resample data 20 times and find optimal k on validation set using devils seed
+
+ 				idx 	 <- idxs[ ,i]					
+				train 	 <- data[ idx, ]
+				validate <- data[-idx, ]
+
+				result <- as.vector(NULL)
+				for(k in 1:100) result[k] <- knnMR(k)			
+				return(list(result = result, train = train, validate = validate))
+			}
+
+			#######
+			# (A) #
+			#######
+
+			plots <- list() 
+			for(n in 1:20) plots[[n]] <- plotMissClass(results[[n]]$result)
+
+			multiplot(plotlist = plots, cols = 5)
+
+			#######
+			# (B) #
+			#######
+
+			plots <- list()
+			for(n in 1:10) plots[[n]] <- plotBestKNN(x = results[[n]]$result, results[[n]]$train, results[[n]]$validate)
+			
+			multiplot(plotlist = plots, cols = 5)
+
+			plots <- list()
+			for(n in 11:20) plots[[n]] <- plotBestKNN(x = results[[n]]$result, results[[n]]$train, results[[n]]$validate)
+
+			multiplot(plotlist = plots, cols = 5)	
+
+			#######
+			# (C) #
+			#######
+
+			t(matrix(lapply(results, function(x) which.min(x$result)), dimnames = list(1:length(results), "K"))) # best K at each N
+	
+			#######
+			# (D) #
+			#######
+
+			mean(unlist(lapply(results, function(x) which.min(x$result)))) # average min OOS error
+			sd(unlist(lapply(results, function(x) which.min(x$result))))
+
+		############
+		#  Part 5  #
+		############
+
+			# Comment on the difference between the results obtained in (2), (3) and (4).
+
+		############
+		#  Part 6  #
+		############
 
 		idx 	 <- sample(1:NROW(data), NROW(data) * 0.50) # 50% random split
 		train 	 <- data[ idx, ]
 		validate <- data[-idx, ]
 
-		knnMR <- function(K){ # does KNN for selected K and reports missclassification rate
-						knn 	<- kknn(formula = Category ~ X + Y, train = train, test = validate, kernel = "rectangular", k = K)
-						yhat 	<- knn$fitted.values
-						true_y  <- validate$Category
-						MR 		<- lossMR(true_y, yhat)
-						return(MR)
-		}
-
-		result <- as.vector(NULL)
-		for(k in 1:100) result[k] <- knnMR(k)
-
-		which.min(result) # optimal k
-
-		########
-		# (C)
-		########
-
-		results <- list()
-		for(n in 1:20){ # resample data 20 times and find optimal k on validation set
-
-			idx 	 <- sample(1:NROW(data), NROW(data) * 0.50) # 50% random split
-			train 	 <- data[ idx, ]
-			validate <- data[-idx, ]
-
-			result <- as.vector(NULL)
-			for(k in 1:100) result[k] <- knnMR(k)
-			
-			results[[n]] <- result # store n iteration into list
-		}
-
+		knn 	<- kknn(formula = Category ~ X + Y, train = train, test = validate, kernel = "rectangular", k = 25) # at best K
+							yhat 	<- as.numeric(knn$fitted.values) - 1 # turn into binary; Vandalism = 1, Theft = 0
+							true_y  <- as.numeric(validate$Category) - 1
+							MR 		<- lossMR(true_y, yhat)
