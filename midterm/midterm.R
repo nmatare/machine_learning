@@ -394,6 +394,7 @@
 		############
 
 		train <- data[Partition %in% c('t', 'v'), !which(colnames(data) %in% c('Spending', 'sequence_number', 'Partition')), with = FALSE] # combine training and validation together; remove spending
+		test <- data[Partition %in% c('s'), !which(colnames(data) %in% c('Spending', 'sequence_number', 'Partition')), with = FALSE] 
 
 		# Try Linear
 		LASSO <- cv.gamlr(	x = train[ ,which(colnames(train) != 'Purchase'), with = FALSE], 
@@ -401,10 +402,11 @@
 							family = 'binomial', verb = FALSE, lambda.start = 0.1, nfold = 10)
 
 		yhat <- predict(LASSO, newdata = train[ ,which(colnames(train) != 'Purchase'), with = FALSE], type = 'response')
-
+		
+		lossMR(train[ ,Purchase], yhat) # LASSO prediction error
 
 		# Try RF
-		RF <- ranger(	as.integer(Purchase) ~., 	data = train, 
+		RF <- ranger(	as.factor(Purchase) ~., 	data = train, 
 						probability = TRUE, classification = TRUE, num.trees = 5000, write.forest = TRUE, 
 						num.threads = detectCores() - 1, importance = 'impurity', verbose = TRUE
 				)
@@ -412,20 +414,48 @@
 		RF$prediction.error * 100 # OOB prediction error
 
 		# Try Boosting
-		params <- list(gamma = 0.08, max_depth = 8, booster = "gbtree", objective = "reg:linear") 
+		params <- list(gamma = 0.08, max_depth = 4, booster = "gbtree", objective = "binary:logistic") 
 		XGBST.cv <- xgb.cv(	params = params, 
 							data = as.matrix(train[ ,which(colnames(train) != 'Purchase'), with = FALSE]), 
 							label = as.vector(train[ ,Purchase]),
-                       		nthread = detectCores() - 1, verbose = 1, nfold = 10, nrounds = 500)
+                       		nthread = detectCores() - 1, verbose = 1, nfold = 10, nrounds = 100)
+
+		tail(XGBST.cv$evaluation$test_error_mean, 1) # last cv.fold missclassification error
 
 		############
 		#  Part 3  #
 		############
 
-		pROC:::roc(response = true_y, predictor = yhat, plot = TRUE) # ROC curve, AUC is 0.665
+		phat <- ranger:::predict.ranger(RF, test[ ,which(colnames(test) != 'Purchase'), with = FALSE])$predictions[ ,'TRUE']	
+		pROC:::roc(response = test[ ,Purchase], predictor = phat, plot = TRUE) # ROC curve, AUC is 0.923
 
 		############
 		#  Part 4  #
 		############
 
-		train <- data[Partition %in% c('t', 'v'), !which(colnames(data) %in% c('Spending', 'sequence_number', 'Partition')), with = FALSE] # combine training and validation together; remove spending
+		train <- data[Partition %in% c('t', 'v') & Purchase == TRUE, !which(colnames(data) %in% c('sequence_number', 'Partition', 'Purchase')), with = FALSE] # combine training and validation together; remove spending
+		test <- data[Partition %in% c('s') & Purchase == TRUE, !which(colnames(data) %in% c('sequence_number', 'Partition', 'Purchase')), with = FALSE]
+
+		# Try Linear
+		LASSO <- cv.gamlr(	x = train[ ,which(colnames(train) != 'Spending'), with = FALSE], 
+							y = train[ ,Spending], 
+							family = 'gaussian', verb = FALSE, lambda.start = Inf, nfold = 10)
+
+		sqrt(LASSO$cvm[which.min(LASSO$cvm)]) # RMSE
+
+		# Try RF
+		RF <- ranger(	Spending ~., 	data = train, 
+						probability = FALSE, classification = FALSE, num.trees = 5000, write.forest = TRUE, 
+						num.threads = detectCores() - 1, importance = 'impurity', verbose = TRUE
+				)
+
+		sqrt(RF$prediction.error) # RMSE
+
+		# Try Boosting
+		params <- list(gamma = 0.08, max_depth = 4, booster = "gbtree", objective = "reg:linear") 
+		XGBST.cv <- xgb.cv(	params = params, 
+							data = as.matrix(train[ ,which(colnames(train) != 'Spending'), with = FALSE]), 
+							label = as.vector(train[ ,Spending]),
+                       		nthread = detectCores() - 1, verbose = 1, nfold = 10, nrounds = 100)
+
+		tail(XGBST.cv$evaluation$test_rmse_mean, 1) # last cv.fold missclassification error
