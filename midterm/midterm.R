@@ -235,8 +235,8 @@
 			# (D) #
 			#######
 
-			mean(unlist(lapply(results, function(x) which.min(x$result)))) # average min OOS error
-			sd(unlist(lapply(results, function(x) which.min(x$result))))
+			mean(unlist(lapply(results, function(x) min(x$result)))) # mean of minimumn OOS classification rate
+			sd(unlist(lapply(results, function(x) min(x$result))))
 
 		############
 		#  Part 4  #
@@ -287,8 +287,8 @@
 			# (D) #
 			#######
 
-			mean(unlist(lapply(results, function(x) which.min(x$result)))) # average min OOS error
-			sd(unlist(lapply(results, function(x) which.min(x$result))))
+			mean(unlist(lapply(results, function(x) min(x$result)))) # average min OOS error
+			sd(unlist(lapply(results, function(x) min(x$result))))
 
 		############
 		#  Part 5  #
@@ -305,6 +305,11 @@
 		validate <- data[-idx, ]
 
 		knn 	<- kknn(formula = Category ~ X + Y, train = train, test = validate, kernel = "rectangular", k = 25) # at best K
-							yhat 	<- as.numeric(knn$fitted.values) - 1 # turn into binary; Vandalism = 1, Theft = 0
-							true_y  <- as.numeric(validate$Category) - 1
-							MR 		<- lossMR(true_y, yhat)
+		yhat 	<- as.numeric(knn$fitted.values) - 1 # turn into binary; Vandalism = 1, Theft = 0
+		true_y  <- as.numeric(validate$Category) - 1
+
+		pROC:::roc(response = true_y, predictor = yhat, plot = TRUE) # ROC curve, AUC is 0.665
+
+########
+# Question 3
+########
