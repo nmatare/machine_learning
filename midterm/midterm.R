@@ -60,7 +60,8 @@
 	docvknn <- function(x, y, k, nfold = 10, doran = TRUE, verbose = TRUE){return(docv(x, y, matrix(k, ncol = 1), doknn, mse, nfold = nfold, doran = doran, verbose = verbose))}
 
 	lossMR <- function(y, phat, thr = 0.5){
-					if(is.factor(y)) y = as.numeric(y) - 1
+					if(is.factor(y)) 
+						y <- as.numeric(y) - 1
 					yhat <- ifelse(phat > thr, 1, 0)
 					return(1 - mean(yhat == y))
 	}
@@ -138,7 +139,8 @@
 		#  Part 1  #
 		############
 
-		ggplot(data = data, aes(x = X, y = Y, color = Category)) + geom_point() +
+		ggplot(data = data, aes(x = X, y = Y, color = Category)) + 
+			geom_point() +
 			scale_color_manual(values = c("salmon", "grey"), name = "Category", labels = c("Vandalism", "Thefts")) 
 
 		############
@@ -156,8 +158,9 @@
 			train 	 <- data[ idx, ]
 			validate <- data[-idx, ]
 		
-			knnMR <- function(K){ # does KNN for selected K and reports missclassification rate
-							knn 	<- kknn(formula = Category ~ X + Y, train = train, test = validate, kernel = "rectangular", k = K)
+			knnMR <- function(K, train, validate){ # does KNN for selected K and reports missclassification rate
+							knn 	<- kknn(formula = Category ~ X + Y, train = train, 
+											test = validate, kernel = "rectangular", k = K)
 							yhat 	<- as.numeric(knn$fitted.values) - 1 # turn into binary; Vandalism = 1, Theft = 0
 							true_y  <- as.numeric(validate$Category) - 1
 							MR 		<- lossMR(true_y, yhat)
@@ -165,7 +168,7 @@
 			}
 
 			result <- as.vector(NULL)
-			for(k in 1:100) result[k] <- knnMR(k)
+			for(k in 1:100) result[k] <- knnMR(k, train, validate)
 
 			#######
 			# (A) #
@@ -220,7 +223,7 @@
 				validate <- data[-idx, ]
 
 				result <- as.vector(NULL)
-				for(k in 1:100) result[k] <- knnMR(k)			
+				for(k in 1:100) result[k] <- knnMR(k, train, validate)
 				return(list(result = result, train = train, validate = validate))
 			}
 
@@ -228,10 +231,13 @@
 			# (A) #
 			#######
 
-			plots <- list() 
-			for(n in 1:20) plots[[n]] <- plotMissClass(results[[n]]$result)
-
-			multiplot(plotlist = plots, cols = 5)
+			missclass <- as.data.frame(cbind(1:100, do.call(cbind, lapply(results, function(x) x$result))))
+			missclass_long <- melt(missclass, id = "V1")
+	
+			ggplot(data = missclass_long, aes(x = V1, y = value, group = variable)) +
+				geom_line(color = 'grey') +
+				stat_summary(fun.y = mean, geom = "line", lwd = 1, aes(group = 1)) +
+				xlab("K") + ylab("Misclassification Rate") 
 
 			#######
 			# (B) #
@@ -245,7 +251,9 @@
 			plots <- list()
 			for(n in 11:20) plots[[n]] <- plotBestKNN(x = results[[n]]$result, results[[n]]$train, results[[n]]$validate)
 
-			multiplot(plotlist = plots, cols = 5)	
+			multiplot(plotlist = plots, cols = 5)
+
+
 
 			#######
 			# (C) #
@@ -272,7 +280,7 @@
 				validate <- data[-idx, ]
 
 				result <- as.vector(NULL)
-				for(k in 1:100) result[k] <- knnMR(k)			
+				for(k in 1:100) result[k] <- knnMR(k, train, validate)
 				return(list(result = result, train = train, validate = validate))
 			}
 
@@ -280,10 +288,13 @@
 			# (A) #
 			#######
 
-			plots <- list() 
-			for(n in 1:20) plots[[n]] <- plotMissClass(results[[n]]$result)
-
-			multiplot(plotlist = plots, cols = 5)
+			missclass <- as.data.frame(cbind(1:100, do.call(cbind, lapply(results, function(x) x$result))))
+			missclass_long <- melt(missclass, id = "V1")
+	
+			ggplot(data = missclass_long, aes(x = V1, y = value, group = variable)) +
+				geom_line(color = 'grey') +
+				stat_summary(fun.y = mean, geom = "line", lwd = 1, aes(group = 1)) +
+				xlab("K") + ylab("Misclassification Rate") 
 
 			#######
 			# (B) #
@@ -291,7 +302,7 @@
 
 			plots <- list()
 			for(n in 1:10) plots[[n]] <- plotBestKNN(x = results[[n]]$result, results[[n]]$train, results[[n]]$validate)
-			
+
 			multiplot(plotlist = plots, cols = 5)
 
 			plots <- list()
@@ -389,7 +400,8 @@
 							y = train[ ,Purchase], 
 							family = 'binomial', verb = FALSE, lambda.start = 0.1, nfold = 10)
 
-		LASSO$gamlr$deviance[LASSO$seg.min] # get deviance of seg.min
+		yhat <- predict(LASSO, newdata = train[ ,which(colnames(train) != 'Purchase'), with = FALSE], type = 'response')
+
 
 		# Try RF
 		RF <- ranger(	as.integer(Purchase) ~., 	data = train, 
