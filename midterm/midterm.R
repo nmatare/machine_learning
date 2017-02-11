@@ -103,7 +103,29 @@
 
 ########
 # Question 1
-########
+########	
+		
+		# Part 1
+
+		# A) FALSE :: lec 1 slide 32
+		# B) TRUE :: lec 1 slide 32
+		# C) UNKNOWN :: depends on the function # show R example
+		# D) UNKNOWN :: depends on the function
+
+		# Part 2
+
+		# A) TRUE :: lec 1 slide 32 :: more complex
+		# B) FALSE :: lec 1 slide 32 :: less complex, reference gunter's class notes
+		# C) TRUE :: it's overfit to the training data
+		# D) FALSE :: it's underfit, model 2 would likely have the best the testing 
+
+		# Part 3
+
+		# Usually true, but I could find trick examples usually the training data used to fit the best model provides the 'lowest MR'; the MR rate will be slighlty higher on the validation set
+		# artifact of the data; see lecture 1
+
+		# Part 4
+		# True cross validation gets you unbiased estimator
 
 
 ########
@@ -313,3 +335,85 @@
 ########
 # Question 3
 ########
+
+	# do weird shit
+
+########
+# Question 4
+########
+
+		############
+		#  Part 1  #
+		############
+
+		data <- as.data.table(read.csv("Tayko.csv"))
+		data[ , ':=' (
+
+			US = as.logical(US),
+
+			source_a 		 = as.logical(source_a),
+			source_c 		 = as.logical(source_c),
+			source_b 		 = as.logical(source_b),
+			source_d 		 = as.logical(source_d),
+			source_e 		 = as.logical(source_e),
+			source_m 		 = as.logical(source_m),
+			source_o 		 = as.logical(source_o),
+			source_h 		 = as.logical(source_h),
+			source_r 		 = as.logical(source_r),
+			source_s 		 = as.logical(source_s),
+			source_t 		 = as.logical(source_t),
+			source_u 		 = as.logical(source_u),
+			source_p 		 = as.logical(source_p),
+			source_x 		 = as.logical(source_x),
+			source_w 		 = as.logical(source_w),
+
+			Freq 		 				 = as.numeric(Freq),
+			last_update_days_ago 		 = as.numeric(last_update_days_ago),
+			first_update_days_ago 		 = as.numeric(first_update_days_ago),
+			Web_order 		 			 = as.logical(Web_order),
+			Gender_is_male 		 		 = as.logical(Gender_is_male),
+			Address_is_res 		 		 = as.logical(Address_is_res),
+			Purchase 		 			 = as.logical(Purchase),
+			Spending 		 			 = as.numeric(Spending),
+			Partition 		 			 = as.factor(Partition)
+		)]
+
+		############
+		#  Part 2  #
+		############
+
+		train <- data[Partition %in% c('t', 'v'), !which(colnames(data) %in% c('Spending', 'sequence_number', 'Partition')), with = FALSE] # combine training and validation together; remove spending
+
+		# Try Linear
+		LASSO <- cv.gamlr(	x = train[ ,which(colnames(train) != 'Purchase'), with = FALSE], 
+							y = train[ ,Purchase], 
+							family = 'binomial', verb = FALSE, lambda.start = 0.1, nfold = 10)
+
+		LASSO$gamlr$deviance[LASSO$seg.min] # get deviance of seg.min
+
+		# Try RF
+		RF <- ranger(	as.integer(Purchase) ~., 	data = train, 
+						probability = TRUE, classification = TRUE, num.trees = 5000, write.forest = TRUE, 
+						num.threads = detectCores() - 1, importance = 'impurity', verbose = TRUE
+				)
+
+		RF$prediction.error * 100 # OOB prediction error
+
+		# Try Boosting
+		params <- list(gamma = 0.08, max_depth = 8, booster = "gbtree", objective = "reg:linear") 
+		XGBST.cv <- xgb.cv(	params = params, 
+							data = as.matrix(train[ ,which(colnames(train) != 'Purchase'), with = FALSE]), 
+							label = as.vector(train[ ,Purchase]),
+                       		nthread = detectCores() - 1, verbose = 1, nfold = 10, nrounds = 500)
+
+		############
+		#  Part 3  #
+		############
+
+		pROC:::roc(response = true_y, predictor = yhat, plot = TRUE) # ROC curve, AUC is 0.665
+
+		############
+		#  Part 4  #
+		############
+
+		train <- data[Partition %in% c('t', 'v'), !which(colnames(data) %in% c('Spending', 'sequence_number', 'Partition')), with = FALSE] # combine training and validation together; remove spending
