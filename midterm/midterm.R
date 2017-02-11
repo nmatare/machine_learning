@@ -110,8 +110,8 @@
 
 		# A) FALSE :: lec 1 slide 32
 		# B) TRUE :: lec 1 slide 32
-		# C) UNKNOWN :: depends on the function # show R example
-		# D) UNKNOWN :: depends on the function
+		# C) TRUE :: Consider kNN at K = 1, the model will be perfectly fit to its nearest neighboor, itself; as K increases the model becomes more general and incorpates further neighbores; thus, misclassification increases
+		# D) Depends :: Dependent on the K, and the nature of the dataset, as K increases the model could misclassify worse or better: insert lec 1 slide 29 picture
 
 		# Part 2
 
@@ -122,11 +122,12 @@
 
 		# Part 3
 
-		# Usually true, but I could find trick examples usually the training data used to fit the best model provides the 'lowest MR'; the MR rate will be slighlty higher on the validation set
-		# artifact of the data; see lecture 1
+		# Usually true, but it could depend on the data. The data used to evaluate the model based of the training data could by random chance present a better fit, this is why multiple iterations of cross validation needs
+		# to be performed to make sure you're not observing a chance example; see lecture 1
 
 		# Part 4
-		# True cross validation gets you unbiased estimator
+		# Slightly FALSE, leave one out cross validation is an approximate unbiased estimator of the true error; although this is close theoritical reasons for why it is not exactly completely unbiased
+		# However, leave-one-cross validation disallows for much of the hetrogenitiy in the dataset, and can produce underestimated predictions; this and compounded with computation expenseness 5 or 10 fold CV is widely used
 
 
 ########
@@ -174,16 +175,10 @@
 			# (A) #
 			#######
 
-			plotMissClass <- function(x){
-
-						p 	<-	ggplot(data = data.frame(x), aes(x = 1:NROW(x), y = x)) + 
-									xlab("K") + ylab("Misclassification Rate") +
-									geom_line(color = 'grey') + 
-									geom_point()
-						return(p)
-			}
-
-			plotMissClass(result)
+			ggplot(data = data.frame(x), aes(x = 1:NROW(x), y = x)) + 
+					xlab("K") + ylab("Misclassification Rate") +
+					geom_line(color = 'grey') + 
+					geom_point()
 
 			########
 			# (B)
@@ -252,8 +247,6 @@
 			for(n in 11:20) plots[[n]] <- plotBestKNN(x = results[[n]]$result, results[[n]]$train, results[[n]]$validate)
 
 			multiplot(plotlist = plots, cols = 5)
-
-
 
 			#######
 			# (C) #
@@ -348,6 +341,16 @@
 ########
 
 	# do weird shit
+	matrix(2, 1)
+
+	cost <- 15 # fixed cost of targeting
+	benefit <- # benefit of responding
+	phat <- # probabilty of responding
+
+	phat * benefit + (1 - phat) * cost > 0 # solve for phat
+
+	# determine probability of response via classification model
+	# determine donation amount given response back
 
 ########
 # Question 4
@@ -389,24 +392,31 @@
 			Partition 		 			 = as.factor(Partition)
 		)]
 
+		p <- 5.46 # revenue per catalog
+		c <- 2.00 # cost per catalog
+
+		mr <- p - c # marginal revenue
+		num <- 180000 * 0.053 # number of customers responding
+		num * mr # gross profit
+
 		############
 		#  Part 2  #
 		############
 
-		train <- data[Partition %in% c('t', 'v'), !which(colnames(data) %in% c('Spending', 'sequence_number', 'Partition')), with = FALSE] # combine training and validation together; remove spending
-		test <- data[Partition %in% c('s'), !which(colnames(data) %in% c('Spending', 'sequence_number', 'Partition')), with = FALSE] 
+		train_p <- data[Partition %in% c('t', 'v'), !which(colnames(data) %in% c('Spending', 'sequence_number', 'Partition')), with = FALSE] # combine training and validation together; remove spending
+		test_p <- data[Partition %in% c('s'), !which(colnames(data) %in% c('Spending', 'sequence_number', 'Partition')), with = FALSE] 
 
 		# Try Linear
-		LASSO <- cv.gamlr(	x = train[ ,which(colnames(train) != 'Purchase'), with = FALSE], 
-							y = train[ ,Purchase], 
+		LASSO <- cv.gamlr(	x = train_p[ ,which(colnames(train_p) != 'Purchase'), with = FALSE], 
+							y = train_p[ ,Purchase], 
 							family = 'binomial', verb = FALSE, lambda.start = 0.1, nfold = 10)
 
-		yhat <- predict(LASSO, newdata = train[ ,which(colnames(train) != 'Purchase'), with = FALSE], type = 'response')
+		yhat <- predict(LASSO, newdata = train_p[ ,which(colnames(train_p) != 'Purchase'), with = FALSE], type = 'response')
 		
-		lossMR(train[ ,Purchase], yhat) # LASSO prediction error
+		lossMR(train_p[ ,Purchase], yhat) # LASSO prediction error
 
 		# Try RF
-		RF <- ranger(	as.factor(Purchase) ~., 	data = train, 
+		RF <- ranger(	as.factor(Purchase) ~., 	data = train_p, 
 						probability = TRUE, classification = TRUE, num.trees = 5000, write.forest = TRUE, 
 						num.threads = detectCores() - 1, importance = 'impurity', verbose = TRUE
 				)
@@ -416,8 +426,8 @@
 		# Try Boosting
 		params <- list(gamma = 0.08, max_depth = 4, booster = "gbtree", objective = "binary:logistic") 
 		XGBST.cv <- xgb.cv(	params = params, 
-							data = as.matrix(train[ ,which(colnames(train) != 'Purchase'), with = FALSE]), 
-							label = as.vector(train[ ,Purchase]),
+							data = as.matrix(train_p[ ,which(colnames(train_p) != 'Purchase'), with = FALSE]), 
+							label = as.vector(train_p[ ,Purchase]),
                        		nthread = detectCores() - 1, verbose = 1, nfold = 10, nrounds = 100)
 
 		tail(XGBST.cv$evaluation$test_error_mean, 1) # last cv.fold missclassification error
@@ -426,25 +436,25 @@
 		#  Part 3  #
 		############
 
-		phat <- ranger:::predict.ranger(RF, test[ ,which(colnames(test) != 'Purchase'), with = FALSE])$predictions[ ,'TRUE']	
-		pROC:::roc(response = test[ ,Purchase], predictor = phat, plot = TRUE) # ROC curve, AUC is 0.923
+		phat <- ranger:::predict.ranger(RF, test_p[ ,which(colnames(test_p) != 'Purchase'), with = FALSE])$predictions[ ,'TRUE']	
+		pROC:::roc(response = test_p[ ,Purchase], predictor = phat, plot = TRUE) # ROC curve, AUC is 0.923
 
 		############
 		#  Part 4  #
 		############
 
-		train <- data[Partition %in% c('t', 'v') & Purchase == TRUE, !which(colnames(data) %in% c('sequence_number', 'Partition', 'Purchase')), with = FALSE] # combine training and validation together; remove spending
-		test <- data[Partition %in% c('s') & Purchase == TRUE, !which(colnames(data) %in% c('sequence_number', 'Partition', 'Purchase')), with = FALSE]
+		train_s <- data[Partition %in% c('t', 'v') & Purchase == TRUE, !which(colnames(data) %in% c('sequence_number', 'Partition', 'Purchase')), with = FALSE] # combine training and validation together; remove spending
+		test_s <- data[Partition %in% c('s') & Purchase == TRUE, !which(colnames(data) %in% c('sequence_number', 'Partition', 'Purchase')), with = FALSE]
 
 		# Try Linear
-		LASSO <- cv.gamlr(	x = train[ ,which(colnames(train) != 'Spending'), with = FALSE], 
-							y = train[ ,Spending], 
+		LASSO <- cv.gamlr(	x = train_s[ ,which(colnames(train_s) != 'Spending'), with = FALSE], 
+							y = train_s[ ,Spending], 
 							family = 'gaussian', verb = FALSE, lambda.start = Inf, nfold = 10)
 
 		sqrt(LASSO$cvm[which.min(LASSO$cvm)]) # RMSE
 
 		# Try RF
-		RF <- ranger(	Spending ~., 	data = train, 
+		RF <- ranger(	Spending ~., 	data = train_s, 
 						probability = FALSE, classification = FALSE, num.trees = 5000, write.forest = TRUE, 
 						num.threads = detectCores() - 1, importance = 'impurity', verbose = TRUE
 				)
@@ -454,8 +464,38 @@
 		# Try Boosting
 		params <- list(gamma = 0.08, max_depth = 4, booster = "gbtree", objective = "reg:linear") 
 		XGBST.cv <- xgb.cv(	params = params, 
-							data = as.matrix(train[ ,which(colnames(train) != 'Spending'), with = FALSE]), 
-							label = as.vector(train[ ,Spending]),
+							data = as.matrix(train_s[ ,which(colnames(train_s) != 'Spending'), with = FALSE]), 
+							label = as.vector(train_s[ ,Spending]),
                        		nthread = detectCores() - 1, verbose = 1, nfold = 10, nrounds = 100)
 
-		tail(XGBST.cv$evaluation$test_rmse_mean, 1) # last cv.fold missclassification error
+		tail(XGBST.cv$evaluation$test_rmse_mean, 1) # last cv.fold missclassification error; best RMSE
+
+		############
+		#  Part 5  #
+		############
+
+		XGBST <- xgboost(	params = params, data = as.matrix(train_s[ ,which(colnames(train_s) != 'Spending'), with = FALSE]), 
+							label = as.vector(train_s[ ,Spending]), nthread = detectCores() - 1, verbose = 1, nrounds = 500)
+
+		yhat <- predict(XGBST, as.matrix(test_s[ ,which(colnames(test_s) != 'Spending'), with = FALSE])) # predicted spending given best model
+
+
+		test_p[ ,phat := phat] # add the phats to purchase data.table
+		test_p[Purchase == TRUE, yhat := yhat] # add yhats to those that purchased
+
+		expected_spending <- test_p[ ,cumsum(sort(yhat * phat * 0.107)) / num * mr]
+
+		ggplot(data = data.frame(expected_spending), aes(x = 1:NROW(expected_spending), y = expected_spending)) + geom_line() #xlab("K") + ylab("Misclassification Rate") 
+
+		############
+		#  Part 6  #
+		############
+
+		# TO DO
+		library(ROCR)
+		prediction(yhat, train_s[ ,Purchase])
+
+		pred = prediction(phatBest[,i], testDf$y)
+		perf = performance(pred, measure = "lift", x.measure = "rpp")
+
+	
