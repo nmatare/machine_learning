@@ -175,7 +175,7 @@
 			# (A) #
 			#######
 
-			ggplot(data = data.frame(x), aes(x = 1:NROW(x), y = x)) + 
+			ggplot(data = data.frame(result), aes(x = 1:NROW(result), y = result)) + 
 					xlab("K") + ylab("Misclassification Rate") +
 					geom_line(color = 'grey') + 
 					geom_point()
@@ -238,6 +238,9 @@
 			# (B) #
 			#######
 
+			n <- 15
+			plotBestKNN(x = results[[n]]$result, results[[n]]$train, results[[n]]$validate)
+
 			plots <- list()
 			for(n in 1:10) plots[[n]] <- plotBestKNN(x = results[[n]]$result, results[[n]]$train, results[[n]]$validate)
 			
@@ -259,7 +262,8 @@
 			#######
 
 			mean(unlist(lapply(results, function(x) min(x$result)))) # mean of minimumn OOS classification rate
-			sd(unlist(lapply(results, function(x) min(x$result))))
+			min.mr <- unlist(lapply(results, function(x) min(x$result)))
+			sd(min.mr) / sqrt(length(min.mr))
 
 		############
 		#  Part 4  #
@@ -314,7 +318,8 @@
 			#######
 
 			mean(unlist(lapply(results, function(x) min(x$result)))) # average min OOS error
-			sd(unlist(lapply(results, function(x) min(x$result))))
+			min.mr <- unlist(lapply(results, function(x) min(x$result)))
+			sd(min.mr) / sqrt(length(min.mr))
 
 		############
 		#  Part 5  #
@@ -392,12 +397,10 @@
 			Partition 		 			 = as.factor(Partition)
 		)]
 
-		p <- 5.46 # revenue per catalog
-		c <- 2.00 # cost per catalog
+		total.spend <- sum(data[Partition == 's', Spending])
+		num.customer <- length(data[Partition == 's', Spending])
 
-		mr <- p - c # marginal revenue
-		num <- 180000 * 0.053 # number of customers responding
-		num * mr # gross profit
+		(total.spend / num.customer * 0.107 - 2) * 18e4 / 1e6 # gross profit in millions
 
 		############
 		#  Part 2  #
@@ -444,7 +447,7 @@
 		############
 
 		train_s <- data[Partition %in% c('t', 'v') & Purchase == TRUE, !which(colnames(data) %in% c('sequence_number', 'Partition', 'Purchase')), with = FALSE] # combine training and validation together; remove spending
-		test_s <- data[Partition %in% c('s') & Purchase == TRUE, !which(colnames(data) %in% c('sequence_number', 'Partition', 'Purchase')), with = FALSE]
+		test_s <- data[Partition %in% c('s'), !which(colnames(data) %in% c('sequence_number', 'Partition', 'Purchase')), with = FALSE] 
 
 		# Try Linear
 		LASSO <- cv.gamlr(	x = train_s[ ,which(colnames(train_s) != 'Spending'), with = FALSE], 
@@ -478,24 +481,22 @@
 							label = as.vector(train_s[ ,Spending]), nthread = detectCores() - 1, verbose = 1, nrounds = 500)
 
 		yhat <- predict(XGBST, as.matrix(test_s[ ,which(colnames(test_s) != 'Spending'), with = FALSE])) # predicted spending given best model
+		yhat <- ifelse(yhat <= 0, 0, yhat) # not possible for neg yhats
 
+		test_p[ ,phat := phat] # phats to purchase data.table
+		test_p[ ,yhat := yhat] # yhats to those that purchased
+		total.spend <- sum(data[Partition == 's' ,Spending])
+		num.customer <- length(data[Partition == 's' ,Spending])
 
-		test_p[ ,phat := phat] # add the phats to purchase data.table
-		test_p[Purchase == TRUE, yhat := yhat] # add yhats to those that purchased
-
-		expected_spending <- test_p[ ,cumsum(sort(yhat * phat * 0.107)) / num * mr]
-
+		expected_spending <- test_p[ ,cumsum(sort(yhat * phat * 0.107)) / (total.spend / num.customer)]
 		ggplot(data = data.frame(expected_spending), aes(x = 1:NROW(expected_spending), y = expected_spending)) + geom_line() #xlab("K") + ylab("Misclassification Rate") 
 
 		############
 		#  Part 6  #
 		############
 
-		# TO DO
-		library(ROCR)
-		prediction(yhat, train_s[ ,Purchase])
+		mr <- (total.spend / num.customer * 0.107 - 2) # marginal revenue from Q4.1
+		n <- 500 * 18e4 / 5e6 # mail the top 3.6% of the list 
+		lift <- test_p[ ,cumsum(sort(phat * yhat))][n] # lift at n percentile
+		(lift * (total.spend / num.customer * 0.107) - 2) * 18e4 / 1e6 # new gross profit
 
-		pred = prediction(phatBest[,i], testDf$y)
-		perf = performance(pred, measure = "lift", x.measure = "rpp")
-
-	
