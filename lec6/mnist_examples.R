@@ -1,7 +1,9 @@
+
 library(randomForest)
 library(e1071)
 library(h2o)
 library(glmnet)
+library(data.table)
 
 # we will not train many models in the classroom on this example
 # as they will take a long time
@@ -15,17 +17,12 @@ fileNames = c("train-images.idx3-ubyte",
               "t10k-images.idx3-ubyte",
               "train-labels.idx1-ubyte",
               "t10k-labels.idx1-ubyte")
-GIT_REPO = "https://github.com/ChicagoBoothML/DATA___LeCun___MNISTDigits/raw/master/"
-for (fName in fileNames) {
-    download.file(paste(GIT_REPO, fName, sep = ""), 
-                  destfile = file.path(MNIST_DIR, fName))
-}
-
 
 # code to load digits and show one digit
 source("https://raw.githubusercontent.com/ChicagoBoothML/MachineLearning_Fall2015/master/Programming%20Scripts/Lecture06/mnist.helper.R")
 
 # load all digits
+setwd('/home/nmatare/projects/machine_learning/lec6/')
 digit.data = load_mnist(MNIST_DIR)
 
 # training sample size and number of pixels
@@ -111,7 +108,7 @@ temp=table(predicted.test,digit.data$test$y)
 ####################################
 
 # start or connect to h2o server
-h2oServer <- h2o.init(ip="localhost", port=54321, max_mem_size="4g", nthreads=-1)
+h2oServer <- h2o.init(ip="localhost", port=54321, nthreads=-1) # max_mem_size="4g",
 
 # we need to load data into h2o format
 train_hex = as.h2o(data.frame(x=digit.data$train$x, y=digit.data$train$y))
@@ -265,5 +262,5 @@ if (inClass == FALSE) {
 phat = h2o.predict(deep.rf, testX.deep.features)
 head(phat)
 
-h2o.confusionMatrix(deep.rf, h2o.cbind(testX.deep.features, test_hex[,785]))
+h2o.confusionMatrix(deep.rf, h2o.cbind(testX.deep.features, test_hex[ ,785]))
 

@@ -344,18 +344,21 @@
 ########
 # Question 3
 ########
-
-	# do weird shit
-	matrix(2, 1)
-
+	
+	# make example confusion matrix
+	benefit <- 3000 # benefit of responding; ex. say $3000
 	cost <- 15 # fixed cost of targeting
-	benefit <- # benefit of responding
+	matrix(c(benefit - cost, benefit, cost, 0), 
+			nrow = 2,  
+			dimnames = list(c("Target", "Not Target"),
+                            c("Donate", "Not Donate"))
+    ) 
+
+
 	phat <- # probabilty of responding
 
-	phat * benefit + (1 - phat) * cost > 0 # solve for phat
+	phat * benefit + (1 - phat) * cost > 0 # solve for phat; target those above phat
 
-	# determine probability of response via classification model
-	# determine donation amount given response back
 
 ########
 # Question 4

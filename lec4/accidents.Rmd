@@ -96,7 +96,7 @@ Finally, we will need some libraries to perform analyis.
 
 ```{r message=FALSE}
 library(randomForest)
-library(gbm)
+library(gbm)F
 library(rpart)
 library(rpart.plot)
 library(e1071)   # for naive bayes
