@@ -40,14 +40,6 @@ Y_appetency=read.table("orange_small_train_appetency.labels.txt", quote="\"")
 Y_upselling=read.table("orange_small_train_upselling.labels.txt", quote="\"")
 
 
-
-
-
-
-
-
-
-
 ##################### All codes below are sample hints#######################
 #1. How to write a loop over columns of a data.frame (say, X here)?
 
