@@ -6,9 +6,9 @@ library(Matrix); library(data.table)
 library(xgboost); library(ranger); library(h2o); library(parallel); library(gamlr); library(parallel)
 
 # source data and functions
-download.file('https://www.dropbox.com/s/rr70dr00vymd93x/data-matchup-norm.rds?dl=1', destfile = "data-matchup-norm.rds", method = "auto") # download matchup 
-download.file('https://www.dropbox.com/s/a3pqoik37ey0lzf/data-scale.rds?dl=1', destfile = "data.scale.rds", method = "auto") # download standardized data
-download.file('https://www.dropbox.com/s/uipzj05bkg1eeyw/data-norm.rds?dl=1', destfile = "data.norm.rds", method = "auto") # download norm data
+download.file('https://www.dropbox.com/s/si4ha9gk4ptptgh/data-matchup.rds?dl=1', destfile = "data-matchup-norm.rds", method = "auto") # download matchup 
+# download.file('https://www.dropbox.com/s/a3pqoik37ey0lzf/data-scale.rds?dl=1', destfile = "data.scale.rds", method = "auto") # download standardized data
+download.file('https://www.dropbox.com/s/gw5x1z3pg8cf7hb/data-stats.rds?dl=1', destfile = "data.norm.rds", method = "auto") # download norm data
 source('https://www.dropbox.com/s/cx5jalemtzvyhch/functions.R?dl=1') # get custom utility scripts 
 
 # this data is not scaled or normalized!
@@ -35,9 +35,9 @@ data[game_played == TRUE]
 
 # take a look at player stat variables
 # look at correlations among some vars
-cor(data[,points.stat_player.game.1], data[,minutes.stat_player.game.1]) 
+cor(data[ ,points.stat_player.game.1], data[,minutes.stat_player.game.1]) 
 #points are correlated to minutes!
-plot(data[,points.stat_player.game.1], data[,minutes.stat_player.game.1]) 
+plot(data[ ,points.stat_player.game.1], data[,minutes.stat_player.game.1]) 
 
 # maybe I only want to run a per player model ??, 
 data[full_name == "Brandon Knight"]
@@ -56,7 +56,7 @@ data[ ,game_date := as.numeric(as.Date(game_date, origin = '1970-01-01', tz = "U
 data <- data[order(game_date)]
 
 # total number of gamedays we have available 
-g <- dim(unique(data[,grep('^game_date$', colnames(data)), with = FALSE]))[1]
+g <- dim(unique(data[ ,grep('^game_date$', colnames(data)), with = FALSE]))[1]
 g
 
 # lets run some models
@@ -99,7 +99,6 @@ eval <- crossValidateTS(
 			lamba.min.ratio = 1e-9, 
 			lambda.start = 1.00, 
 			gamma = 0
-
 			# note the function will not use timeCol as a predictor column [ it gets removed]
 )
 
@@ -120,14 +119,13 @@ eval <- crossValidateTS(
 			data = as.matrix(newdat), # specify the where the data is coming from; YOU MUST convert to matrix first
 			predCol = "points.y_var", # this is the name of the predictor column
 			timeCol = "game_date", # each period is one game and is determined by this column game_date
-			period = g - 2, #or you could say I want 2 out of sample predictions, where g is the total number of games in data; here i'll get two out of same tests
+			period = g - 2, # or you could say I want 2 out of sample predictions, where g is the total number of games in data; here i'll get two out of same tests
 			verbose = TRUE, 
 			anchored = TRUE, # whether to roll the training window or keep it fixed at observation 1
 			
 			# specify model parameters ?ranger for this example
 			model = 'RF', # use trees this time
 			ntree = 100, nodesize = 5
-
 			# note the function will not use timeCol as a predictor column [ it gets removed]
 )
 

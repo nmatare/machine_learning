@@ -25,14 +25,14 @@
 
 	download.file(paste("https://raw.githubusercontent.com/ChicagoBoothML/MLClassData/master/", "HumanActivityRecognitionUsingSmartphones/ParseData.R", sep = ""), "ParseData.R")
 	source("ParseData.R")
-	data <- parse_human_activity_recog_data()
+	data2 <- parse_human_activity_recog_data()
 
-	trainX <- data.matrix(data$X_train)
-	trainY <- as.integer(factor(data$y_train)) - 1
+	trainX <- data.matrix(data2$X_train)
+	trainY <- as.integer(factor(data2$y_train)) - 1
 
-	testX <- data.matrix(data$X_test)
-	testY <- as.integer(factor(data$y_test)) - 1
-	testYnames <- levels(data$y_test)
+	testX <- data.matrix(data2$X_test)
+	testY <- as.integer(factor(data2$y_test)) - 1
+	testYnames <- levels(data2$y_test)
 
 	mx.set.seed(666)
 
@@ -54,30 +54,30 @@
 	net = mx.symbol.FullyConnected(net, name = "layerOut", num_hidden = 6) # output layer; if classification, must be equal to # of classes
 	architecture = mx.symbol.SoftmaxOutput(net, name = "sm") # softmax for classification
 
-  	# model <- mx.model.FeedForward.create(
-   # 				X = trainX, 
-   # 				y = trainY, 
- 		# 		eval.metric = mx.metric.accuracy,
-   # 				verbose = TRUE,
-   # 				symbol = architecture, # network architecture
+  	model <- mx.model.FeedForward.create(
+   				X = trainX, 
+   				y = trainY, 
+ 				eval.metric = mx.metric.accuracy,
+   				verbose = TRUE,
+   				symbol = architecture, # network architecture
                 
-   # 				ctx = mx.gpu(1),
-   #              # ctx = mx.gpu(3), # mx.cpu or mx.gpu
-   #              # kvstore = "local_allreduce_device", # http://mxnet-tqchen.readthedocs.io/en/latest/system/multi_node.html
+   				ctx = mx.gpu(1),
+                # ctx = mx.gpu(3), # mx.cpu or mx.gpu
+                # kvstore = "local_allreduce_device", # http://mxnet-tqchen.readthedocs.io/en/latest/system/multi_node.html
 
-			# 	optimizer = "adadelta", # ['sgd','adadelta'] # Stochastic Gradient Descent optimizer 
-   #            	# optimizer = "sgd",
-   #              # learning.rate = 0.05, # SGD step size [0 - 1]; how large of steps until local optimimum
-   #              # momentum = 0.3, # SGD momentum (prevents getting stuck in local optimium)
+				optimizer = "adadelta", # ['sgd','adadelta'] # Stochastic Gradient Descent optimizer 
+              	# optimizer = "sgd",
+                # learning.rate = 0.05, # SGD step size [0 - 1]; how large of steps until local optimimum
+                # momentum = 0.3, # SGD momentum (prevents getting stuck in local optimium)
                 
-   #              initializer = mx.init.uniform(0.01),
-   #              array.layout = "rowmajor",
-   #              array.batch.size = 1000, # the number of training examples in one forward/backward pass #large batch size, greater amount of data used in one iteration
-   #              # begin.round = 1,
-   #              num.round = 20, # number of epochs
-   #              # epoch.end.callback = mx.callback.save.checkpoint(prefix = "learn.tmp", period = 1)
-   #              # epoch.end.callback = mx.callback.early.stop(eval.metric = 0.30) # end early if train or eval metric goes below threshold
-    #  )	
+                initializer = mx.init.uniform(0.01),
+                array.layout = "rowmajor",
+                array.batch.size = 1000, # the number of training examples in one forward/backward pass #large batch size, greater amount of data used in one iteration
+                # begin.round = 1,
+                num.round = 20, # number of epochs
+                # epoch.end.callback = mx.callback.save.checkpoint(prefix = "learn.tmp", period = 1)
+                # epoch.end.callback = mx.callback.early.stop(eval.metric = 0.30) # end early if train or eval metric goes below threshold
+     )	
 
   	trainNeuralNet.GPU <- function(GPUs, epochs, X, Y, architecture, loss.function, optimizer, batch.size, seed = 666, verbose = TRUE){
   					# GPU memory efficent mxnet wrapper; saves 1 iteration to disk and cycles through GPUs
